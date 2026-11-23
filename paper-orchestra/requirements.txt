@@ -6,6 +6,8 @@ matplotlib
 numpy
 openai
 opencv-python
+pandas
+Pillow
 pydantic
 PyMuPDF
 pymupdf4llm

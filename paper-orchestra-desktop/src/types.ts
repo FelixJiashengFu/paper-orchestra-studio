@@ -388,7 +388,7 @@ export interface CitationAudit {
   entries: CitationAuditEntry[];
 }
 
-export type NavTab = "workspace" | "runs" | "artifacts" | "settings";
+export type NavTab = "workspace" | "studio" | "library" | "runs" | "artifacts" | "settings";
 
 export const PIPELINE_STAGES = [
   { id: "outline", label: "Outline 大纲" },
@@ -462,6 +462,9 @@ const TEMPLATE_LABELS: Record<string, string> = {
   "journal-nature": "Nature · Flagship Article",
   "journal-nature-methods": "Nature Methods",
   "journal-nature-biotech": "Nature Biotechnology",
+  "journal-chinese-gb7714": "中文期刊 · GB/T 7714 (计算机学报风格)",
+  "math-modeling-mcm": "数学建模 · 美赛 MCM/ICM",
+  "math-modeling-cumcm": "数学建模 · 国赛 CUMCM / 电工杯",
 };
 
 /** Journal templates carry a venue.json and live in folders named journal-*. */
@@ -595,4 +598,446 @@ export interface SyncBox {
 export interface SyncSource {
   file: string;
   line: number;
+}
+
+// ---------------------------------------------------------------------------
+// ClawsGO Feature Suite: Figure Bundles, Research SOPs, Library & Graph,
+// Pipeline State DAG, LaTeX Copilot, Lean 4 Audit, Memories, SSH/GPU, Skills
+// ---------------------------------------------------------------------------
+
+export interface FigureBbox {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export interface FigureVersion {
+  version: string;
+  created_at: string;
+  instruction: string;
+  bbox: FigureBbox | null;
+  image_rel: string;
+  svg_rel?: string | null;
+  code_rel?: string | null;
+  description_rel?: string | null;
+  abs_image_path: string;
+  abs_svg_path?: string;
+  code: string;
+  description: string;
+}
+
+export interface FigureBundle {
+  figureId: string;
+  title: string;
+  taskName: string;
+  caption: string;
+  aspectRatio: string;
+  activeVersion: string;
+  targetRelPath: string;
+  targetImagePath: string;
+  activeImagePath: string;
+  activeSvgPath?: string;
+  bundleDir: string;
+  versions: FigureVersion[];
+}
+
+export interface FigureStudioListResult {
+  ok: boolean;
+  dir: string;
+  bundles: FigureBundle[];
+  standalone: Array<{ name: string; path: string; relDir: string }>;
+}
+
+export interface DataColumnProfile {
+  name: string;
+  dtype: string;
+  missing: number;
+  missingPct: number;
+  unique: number;
+  mean: number | null;
+  std: number | null;
+  min: number | null;
+  max: number | null;
+  sampleValues: string[];
+}
+
+export interface DataProfile {
+  ok: boolean;
+  file: string;
+  fileName: string;
+  rows: number;
+  cols: number;
+  duplicateRows: number;
+  columns: DataColumnProfile[];
+  previewRows: Array<Record<string, unknown>>;
+  qualityWarnings: string[];
+}
+
+export interface WorkspaceHandoff {
+  title: string;
+  recommendedTemplate: string;
+  ideaMarkdown: string;
+  experimentalLogMarkdown: string;
+  figurePaths: string[];
+}
+
+export interface DataAnalysisResult {
+  ok: boolean;
+  outDir: string;
+  dataDictionary: DataProfile;
+  cleaningLog: Array<Record<string, unknown>>;
+  statsResults: Record<string, unknown>;
+  figurePaths: string[];
+  bundles: FigureBundle[];
+  reportMarkdown: string;
+  reportPath: string;
+  scriptPath: string;
+  attempts: number;
+  workspaceHandoff: WorkspaceHandoff;
+  usageReport?: UsageReport | null;
+}
+
+export type SopKind =
+  | "paper_reading"
+  | "lit_review"
+  | "topic_ideation"
+  | "reproduction"
+  | "math_modeling";
+
+export interface SopWorkflowResult {
+  ok: boolean;
+  sop: SopKind;
+  outDir: string;
+  reportMarkdown: string;
+  reportPath: string;
+  figurePaths: string[];
+  bundles: FigureBundle[];
+  artifacts: Record<string, unknown>;
+  workspaceHandoff: WorkspaceHandoff;
+  usageReport?: UsageReport | null;
+}
+
+export interface LibraryClaim {
+  claim: string;
+  evidence: string;
+  location: string;
+}
+
+export interface LibraryItem {
+  id: string;
+  projectId: string | null;
+  folder: string;
+  title: string;
+  authors: string;
+  year: number | null;
+  venue: string;
+  doi: string;
+  arxivId: string;
+  url: string;
+  pdfPath: string;
+  bibtex: string;
+  gb7714: string;
+  abstractText: string;
+  aiNotes: string;
+  keyClaims: LibraryClaim[];
+  tags: string[];
+  readStatus: "full_read" | "abstract_only" | "unread" | string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SaveLibraryItemInput {
+  id?: string | null;
+  projectId?: string | null;
+  folder: string;
+  title: string;
+  authors: string;
+  year?: number | null;
+  venue: string;
+  doi: string;
+  arxivId: string;
+  url: string;
+  pdfPath: string;
+  bibtex: string;
+  gb7714: string;
+  abstractText: string;
+  aiNotes: string;
+  keyClaims: LibraryClaim[];
+  tags: string[];
+  readStatus: string;
+}
+
+export interface KnowledgeGraphNode {
+  id: string;
+  label: string;
+  fullTitle?: string;
+  kind: "paper" | "concept" | "method" | string;
+  year?: number | null;
+  role?: "survey" | "seminal" | "recent" | "concept" | string;
+  itemId?: string;
+}
+
+export interface KnowledgeGraphEdge {
+  source: string;
+  target: string;
+  relation: string;
+}
+
+export interface KnowledgeGraph {
+  nodes: KnowledgeGraphNode[];
+  edges: KnowledgeGraphEdge[];
+  readingOrder: Array<{
+    step: number;
+    itemId: string;
+    title: string;
+    year: number | null;
+    stage: string;
+    purpose: string;
+  }>;
+  comparisonMatrix: {
+    columns: string[];
+    rows: Array<Record<string, string>>;
+  };
+  generatedBy?: string;
+}
+
+export interface ResearchMemory {
+  id: string;
+  category: string;
+  title: string;
+  content: string;
+  enabled: boolean;
+  updatedAt: string;
+}
+
+export interface SaveResearchMemoryInput {
+  id?: string | null;
+  category: string;
+  title: string;
+  content: string;
+  enabled: boolean;
+}
+
+export interface ResearchPreferences {
+  outputLanguage: string;
+  citationStyle: string;
+  deliveryFormat: string;
+  customRules: string;
+}
+
+export interface SshHost {
+  id: string;
+  alias: string;
+  host: string;
+  port: number;
+  username: string;
+  authType: string;
+  keyPath: string;
+  remoteWorkDir: string;
+  notes: string;
+  lastStatus: string;
+  lastGpuInfo: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SaveSshHostInput {
+  id?: string | null;
+  alias: string;
+  host: string;
+  port: number;
+  username: string;
+  authType: string;
+  keyPath: string;
+  privateKeyPem?: string | null;
+  remoteWorkDir: string;
+  notes: string;
+}
+
+export interface SshGpuInfo {
+  name: string;
+  utilizationPct: number;
+  memUsedMb: number;
+  memTotalMb: number;
+}
+
+export interface SshTestResult {
+  ok: boolean;
+  systemInfo: string;
+  gpus: SshGpuInfo[];
+  rawOutput: string;
+  error: string | null;
+}
+
+export interface SshExecResult {
+  ok: boolean;
+  exitCode: number | null;
+  stdout: string;
+  stderr: string;
+  durationMs: number;
+}
+
+export interface SkillEntry {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  content: string;
+  builtin: boolean;
+  updatedAt: string;
+}
+
+export interface SaveSkillInput {
+  id?: string | null;
+  name: string;
+  description: string;
+  category: string;
+  content: string;
+}
+
+export interface PipelineStateNode {
+  id: string;
+  label: string;
+  depends_on: string[];
+  status: "pending" | "running" | "completed" | "skipped" | "failed" | string;
+  model: string;
+  started_at: string | null;
+  finished_at: string | null;
+  artifact: string;
+  error: string | null;
+  note: string | null;
+}
+
+export interface PipelineIssue {
+  timestamp: string;
+  stage: string;
+  severity: string;
+  message: string;
+}
+
+export interface PipelineState {
+  version: number;
+  resumed: boolean;
+  updated_at: string;
+  nodes: PipelineStateNode[];
+  issues: PipelineIssue[];
+}
+
+export interface CitationTraceItem {
+  key: string;
+  line: number;
+  claimExcerpt: string;
+  title: string;
+  authors: string;
+  year: string | number;
+  venue: string;
+  doi: string;
+  url: string;
+  status: string;
+  sourceEvidence: string;
+}
+
+export interface LatexCopilotEditResult {
+  ok: boolean;
+  file: string;
+  revisedContent: string;
+  diff: string;
+  summary: string;
+  changedLines: number;
+}
+
+export interface LeanAuditReport {
+  kind: "lean-audit";
+  projectDir: string;
+  lakeAvailable: boolean;
+  hasLakefile: boolean;
+  buildRan: boolean;
+  buildOk: boolean | null;
+  zeroHoles: boolean;
+  leanFiles: number;
+  totalLines: number;
+  sorryCount: number;
+  admitCount: number;
+  axiomCount: number;
+  unsafeCount: number;
+  issues: Array<{ kind: string; file: string; line: number; excerpt: string }>;
+  buildTail: string;
+}
+
+export interface StudioEventPayload {
+  jobId: string;
+  kind: "started" | "progress" | "usage" | "log" | "done" | "error" | "cancelled" | string;
+  stage?: string | null;
+  status?: string | null;
+  message?: string | null;
+  model?: string | null;
+  detail?: string | null;
+  estInputTokens?: number | null;
+  outDir?: string | null;
+  usage?: Record<string, unknown> | null;
+  line?: string | null;
+  level?: string | null;
+  timestamp: string;
+}
+
+export interface StudioStepItem {
+  stage: string;
+  status: "running" | "completed" | "error" | string;
+  message: string;
+  model?: string;
+  detail?: string;
+  timestamp: string;
+}
+
+export interface StudioLogItem {
+  id: number;
+  time: string;
+  level: string;
+  text: string;
+}
+
+export interface StudioJobTelemetry {
+  jobId: string;
+  title: string;
+  status: "running" | "completed" | "error" | "cancelled";
+  startedAtMs: number;
+  finishedAtMs?: number;
+  outDir?: string;
+  activeModel?: string;
+  estInputTokens: number;
+  currentMessage: string;
+  errorMessage?: string;
+  steps: StudioStepItem[];
+  logs: StudioLogItem[];
+  usage: UsageReport | null;
+}
+
+export interface ExportEnvironmentInfo {
+  ok: boolean;
+  available: boolean;
+  driveRoot: string;
+  exportDir: string;
+  defaultPdfDir: string;
+  pandocAvailable: boolean;
+  chromeAvailable: boolean;
+}
+
+export interface DocumentExportResult {
+  ok: boolean;
+  path: string;
+  format: "docx" | "pdf" | "html" | string;
+  engine: string;
+  bytes: number;
+}
+
+export interface GoogleDriveExportResult {
+  ok: boolean;
+  path: string;
+  driveRoot: string;
+  fileName: string;
+  format: "docx" | "pdf" | string;
+  engine: string;
+  bytes: number;
+  searchUrl: string;
 }

@@ -12,6 +12,8 @@
 import { getCurrentWindow, type Window as TauriWindow } from "@tauri-apps/api/window";
 import { ask } from "@tauri-apps/plugin-dialog";
 import {
+  BookMarked,
+  Check,
   ChevronRight,
   ExternalLink,
   FileCode2,
@@ -20,10 +22,12 @@ import {
   LocateFixed,
   Play,
   RotateCcw,
+  Sparkles,
   TriangleAlert,
   X,
   XCircle,
 } from "lucide-react";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   useEffect,
   useRef,
@@ -67,10 +71,17 @@ import {
 } from "@codemirror/view";
 import { tags as t } from "@lezer/highlight";
 import { api, base64ToBytes } from "../api";
-import type { LiveCompileIssue, LiveCompileResult, LiveEditSession } from "../types";
+import type {
+  CitationTraceItem,
+  LatexCopilotEditResult,
+  LiveCompileIssue,
+  LiveCompileResult,
+  LiveEditSession,
+} from "../types";
 import { LIVE_EDIT_ERR_CONFLICT, LIVE_EDIT_ERR_RUN_ACTIVE, compileErrors } from "../types";
 import { PdfPreview, type PdfPreviewHandle } from "./PdfPreview";
 import "./live-editor.css";
+import "./studio.css";
 
 interface LiveEditorProps {
   runDir: string;
@@ -123,6 +134,14 @@ export function LiveEditor({ runDir, onClose }: LiveEditorProps) {
   const [issuesOpen, setIssuesOpen] = useState(false);
   const [split, setSplit] = useState(loadSplit);
   const [busy, setBusy] = useState<"" | "switch" | "restore" | "close">("");
+
+  // AI Copilot & Claim-to-Source Traceability drawers
+  const [copilotTab, setCopilotTab] = useState<"" | "ai" | "trace">("");
+  const [aiPrompt, setAiPrompt] = useState("");
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiResult, setAiResult] = useState<LatexCopilotEditResult | null>(null);
+  const [traceBusy, setTraceBusy] = useState(false);
+  const [traces, setTraces] = useState<CitationTraceItem[]>([]);
 
   const editorHostRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -557,6 +576,69 @@ export function LiveEditor({ runDir, onClose }: LiveEditorProps) {
     }
   }
 
+  function currentAbsFile(): string {
+    if (!session) return "";
+    const sep = session.sourceDir.includes("\\") ? "\\" : "/";
+    return `${session.sourceDir.replace(/[\\/]+$/, "")}${sep}${file}`;
+  }
+
+  async function runCopilotEdit(instructionOverride?: string) {
+    const view = viewRef.current;
+    const absFile = currentAbsFile();
+    const instr = (instructionOverride ?? aiPrompt).trim();
+    if (!view || !absFile || !instr) return;
+    setAiBusy(true);
+    setAiResult(null);
+    try {
+      // Ensure latest code is flushed to disk first so the Python script reads it
+      await flushSave();
+      const sel = view.state.selection.main;
+      let selStart: number | undefined;
+      let selEnd: number | undefined;
+      if (!sel.empty) {
+        selStart = view.state.doc.lineAt(sel.from).number;
+        selEnd = view.state.doc.lineAt(Math.max(sel.from, sel.to - 1)).number;
+      }
+      const errLog = compile?.kind === "done" ? compile.result.logTail : "";
+      const res = await api.runLatexCopilotEdit({
+        file: absFile,
+        instruction: instr,
+        selectionStart: selStart,
+        selectionEnd: selEnd,
+        errorLog: errLog,
+      });
+      setAiResult(res);
+    } catch (e) {
+      showNotice(`AI 驻场编辑失败：${errText(e)}`, "error");
+    } finally {
+      setAiBusy(false);
+    }
+  }
+
+  async function applyCopilotEdit() {
+    const view = viewRef.current;
+    if (!view || !aiResult) return;
+    view.dispatch({
+      changes: { from: 0, to: view.state.doc.length, insert: aiResult.revisedContent },
+    });
+    setAiResult(null);
+    showNotice("已应用 AI 修订并触发实时重编", "ok");
+    await saveAndCompile();
+  }
+
+  async function loadCitationTraces() {
+    setTraceBusy(true);
+    try {
+      const absFile = currentAbsFile();
+      const res = await api.runLatexCopilotTrace(runDir, absFile.endsWith(".tex") ? absFile : undefined);
+      setTraces(res.traces || []);
+    } catch (e) {
+      showNotice(`提取引文溯源失败：${errText(e)}`, "error");
+    } finally {
+      setTraceBusy(false);
+    }
+  }
+
   /* ---- restore & close -------------------------------------------------- */
 
   async function restoreOriginal() {
@@ -988,6 +1070,30 @@ export function LiveEditor({ runDir, onClose }: LiveEditorProps) {
           )}
           恢复原稿
         </button>
+        <button
+          type="button"
+          className={`btn btn-sm ${copilotTab === "ai" ? "btn-primary" : ""}`}
+          disabled={!session || runActive}
+          onClick={() => setCopilotTab((prev) => (prev === "ai" ? "" : "ai"))}
+          title="在工作台直接用自然语言改表格排版、分页或修复 LaTeX 编译错误"
+        >
+          <Sparkles size={13} aria-hidden="true" />
+          AI 驻场编辑
+        </button>
+        <button
+          type="button"
+          className={`btn btn-sm ${copilotTab === "trace" ? "btn-primary" : ""}`}
+          disabled={!session}
+          onClick={() => {
+            const next = copilotTab === "trace" ? "" : "trace";
+            setCopilotTab(next);
+            if (next === "trace") void loadCitationTraces();
+          }}
+          title="逐条点击正文引用的来源出处与核验状态"
+        >
+          <BookMarked size={13} aria-hidden="true" />
+          结论溯源
+        </button>
         <div className={`le-status is-${status.tone}`} role="status" aria-live="polite">
           {status.tone === "busy" ? (
             <Loader2 size={13} className="spin" aria-hidden="true" />
@@ -1057,6 +1163,116 @@ export function LiveEditor({ runDir, onClose }: LiveEditorProps) {
               )}
             </div>
           )}
+          {copilotTab === "ai" && (
+            <div className="le-copilot-drawer">
+              <div className="row" style={{ justifyContent: "space-between" }}>
+                <strong>AI 驻场编辑（选中代码行则只改选区，未选中则全文件定位修改）</strong>
+                <button type="button" className="btn btn-ghost btn-sm" onClick={() => setCopilotTab("")}>
+                  <X size={12} />
+                </button>
+              </div>
+              <div className="fb-chips">
+                {[
+                  "表格所有数据单元格内容居中对齐",
+                  "将中文摘要和英文摘要分别单独另起一页（\\newpage）",
+                  "根据最后一次编译报错日志修复当前 LaTeX 语法错误",
+                  "优化这段讨论的学术表述并严格保留全部现有 \\cite{} 引用键",
+                ].map((chip) => (
+                  <button key={chip} type="button" className="fb-chip" onClick={() => setAiPrompt(chip)}>
+                    {chip}
+                  </button>
+                ))}
+              </div>
+              <div className="row" style={{ gap: 8 }}>
+                <input
+                  className="input"
+                  style={{ flex: 1 }}
+                  value={aiPrompt}
+                  onChange={(e) => setAiPrompt(e.target.value)}
+                  placeholder="输入 LaTeX 修改要求，例如：按审稿意见在 Methods 增加一行参数说明…"
+                  onKeyDown={(e) => e.key === "Enter" && void runCopilotEdit()}
+                />
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  disabled={aiBusy || !aiPrompt.trim()}
+                  onClick={() => void runCopilotEdit()}
+                >
+                  {aiBusy ? <Loader2 size={12} className="spin" /> : <Sparkles size={12} />} 生成修订对比
+                </button>
+              </div>
+              {aiResult && (
+                <div className="stack">
+                  <div className="row" style={{ justifyContent: "space-between" }}>
+                    <span className="hint">
+                      {aiResult.summary}（涉及 {aiResult.changedLines} 行变动）
+                    </span>
+                    <button type="button" className="btn btn-primary btn-sm" onClick={() => void applyCopilotEdit()}>
+                      <Check size={12} /> 应用修订并重编
+                    </button>
+                  </div>
+                  <pre className="le-diff-pre">{aiResult.diff || "（与原文件无文本差异）"}</pre>
+                </div>
+              )}
+            </div>
+          )}
+
+          {copilotTab === "trace" && (
+            <div className="le-copilot-drawer">
+              <div className="row" style={{ justifyContent: "space-between" }}>
+                <strong>结论溯源（点击卡片跳回源码行，支持直达原文 DOI / 链接）</strong>
+                <div className="row">
+                  <button type="button" className="btn btn-sm" disabled={traceBusy} onClick={() => void loadCitationTraces()}>
+                    {traceBusy ? <Loader2 size={12} className="spin" /> : "刷新溯源"}
+                  </button>
+                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => setCopilotTab("")}>
+                    <X size={12} />
+                  </button>
+                </div>
+              </div>
+              {traces.length === 0 ? (
+                <div className="hint">{traceBusy ? "正在提取全文引用与依据…" : "当前文档未检测到 \\cite{} 引文条目。"}</div>
+              ) : (
+                <div className="stack">
+                  {traces.map((tr, i) => (
+                    <div
+                      key={`${tr.key}-${tr.line}-${i}`}
+                      className="rs-file-pill"
+                      style={{ flexDirection: "column", alignItems: "stretch", gap: 4, cursor: "pointer" }}
+                      onClick={() => revealLine(tr.line)}
+                    >
+                      <div className="row" style={{ justifyContent: "space-between" }}>
+                        <span>
+                          <code className="st-mono">{tr.key}</code> · 第 {tr.line} 行 ·{" "}
+                          <strong>{tr.title || "未匹配标题"}</strong>
+                        </span>
+                        <div className="row">
+                          <span className={`badge ${tr.status === "verified" ? "badge-succeeded" : tr.status === "unverified" ? "badge-failed" : "badge-warn"}`}>
+                            {tr.status === "verified" ? "已核实" : tr.status === "unverified" ? "未核实" : "仅元数据"}
+                          </span>
+                          {tr.url && (
+                            <button
+                              type="button"
+                              className="btn btn-ghost btn-sm"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                void openUrl(tr.url);
+                              }}
+                            >
+                              <ExternalLink size={11} /> 原文
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      <div className="hint">正文语句：{tr.claimExcerpt}</div>
+                      {tr.sourceEvidence && <div className="hint">依据摘要：{tr.sourceEvidence}</div>}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           <IssuesPanel
             open={issuesOpen}
             onToggle={() => setIssuesOpen((v) => !v)}

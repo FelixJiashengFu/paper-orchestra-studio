@@ -55,7 +55,28 @@ _runs: Dict[str, _Stats] = {}  # bound run folder (absolute) -> its own counters
 _ended: Dict[str, _Stats] = {}  # counters of recently ended runs, for report(run_dir)
 _MAX_ENDED = 32
 _run_dir: Optional[str] = None  # the most recently bound run folder
+_listeners: List[Any] = []
 _warned = False
+
+
+def add_listener(fn: Any) -> None:
+    """Register a live usage snapshot callback invoked on every record(). Never raises."""
+    try:
+        with _lock:
+            if fn not in _listeners:
+                _listeners.append(fn)
+    except Exception:
+        pass
+
+
+def remove_listener(fn: Any) -> None:
+    """Unregister a previously registered usage listener. Never raises."""
+    try:
+        with _lock:
+            if fn in _listeners:
+                _listeners.remove(fn)
+    except Exception:
+        pass
 
 
 def _warn(what: str, err: Exception) -> None:
@@ -342,8 +363,20 @@ def write_report(run_dir: str) -> Optional[str]:
 def _flush() -> None:
     with _lock:
         bound = list(_runs)
+        listeners = list(_listeners)
     for run_dir in bound:
         write_report(run_dir)
+    if listeners:
+        try:
+            snap = report(bound[-1] if bound else None)
+        except Exception:
+            snap = None
+        if snap is not None:
+            for fn in listeners:
+                try:
+                    fn(snap)
+                except Exception:
+                    pass
 
 
 def begin_run(run_dir: Optional[str]) -> None:

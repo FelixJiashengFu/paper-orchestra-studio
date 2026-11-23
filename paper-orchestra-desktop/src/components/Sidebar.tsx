@@ -1,6 +1,8 @@
 import {
   BookOpen,
   ChevronRight,
+  FlaskConical,
+  Library,
   PenLine,
   Plus,
   ScrollText,
@@ -27,9 +29,11 @@ interface SidebarProps {
 
 const NAV_ITEMS: Array<{ id: NavTab; label: string; icon: ReactNode }> = [
   { id: "workspace", label: "工作台", icon: <PenLine size={16} strokeWidth={1.75} /> },
+  { id: "studio", label: "科研工坊", icon: <FlaskConical size={16} strokeWidth={1.75} /> },
+  { id: "library", label: "文献与图谱", icon: <Library size={16} strokeWidth={1.75} /> },
   { id: "runs", label: "运行与日志", icon: <ScrollText size={16} strokeWidth={1.75} /> },
   { id: "artifacts", label: "成果与 PDF", icon: <BookOpen size={16} strokeWidth={1.75} /> },
-  { id: "settings", label: "环境与密钥", icon: <Settings2 size={16} strokeWidth={1.75} /> },
+  { id: "settings", label: "环境与算力", icon: <Settings2 size={16} strokeWidth={1.75} /> },
 ];
 
 export function Sidebar({

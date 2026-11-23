@@ -4,24 +4,49 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import type {
   AppSettings,
   ConnectionCheckReport,
+  DataAnalysisResult,
+  DataProfile,
+  DocumentExportResult,
   EnvSecretsConfig,
   EnvironmentStatus,
+  ExportEnvironmentInfo,
+  FigureStudioListResult,
+  GoogleDriveExportResult,
   IntakeFormResult,
+  KnowledgeGraph,
+  LatexCopilotEditResult,
+  LibraryItem,
   LiveCompileResult,
   LiveEditFile,
   LiveEditSession,
   Project,
   ProjectFigure,
   ProjectSummary,
+  ResearchMemory,
+  ResearchPreferences,
   RunArtifactsSummary,
   RunLogEntry,
   RunLogEventPayload,
   RunRecord,
   RunStatusEventPayload,
+  SaveLibraryItemInput,
   SaveProjectInput,
+  SaveResearchMemoryInput,
+  SaveSkillInput,
+  SaveSshHostInput,
+  SkillEntry,
+  SopKind,
+  SopWorkflowResult,
+  SshExecResult,
+  SshHost,
+  SshTestResult,
+  StudioEventPayload,
   SyncBox,
   SyncSource,
   UpdateAppSettingsInput,
+  UsageReport,
+  CitationTraceItem,
+  FigureBundle,
 } from "./types";
 
 export const api = {
@@ -68,6 +93,7 @@ export const api = {
     invoke<void>("delete_project_figure", { figureId }),
 
   startRun: (projectId: string) => invoke<RunRecord>("start_run", { projectId }),
+  resumeRun: (runId: string) => invoke<RunRecord>("resume_run", { runId }),
   stopRun: (runId: string) => invoke<void>("stop_run", { runId }),
   listRuns: (projectId: string) => invoke<RunRecord[]>("list_runs", { projectId }),
   deleteRun: (runId: string) => invoke<void>("delete_run", { runId }),
@@ -133,6 +159,189 @@ export const api = {
   /** 「投稿工具」: one subcommand of tools/submission_tools.py; resolves to its JSON report. */
   runSubmissionTool: (args: string[]) => invoke<unknown>("run_submission_tool", { args }),
 
+  // ---- ClawsGO Feature Suite ----
+  runFigureStudioList: (dir = "") =>
+    invoke<FigureStudioListResult>("run_figure_studio", { args: ["list", "--dir", dir] }),
+  runFigureStudioEnsureBundle: (dir: string, imagePath: string, title = "") =>
+    invoke<{ ok: boolean; bundle: FigureBundle }>("run_figure_studio", {
+      args: ["ensure-bundle", "--dir", dir, "--image", imagePath, ...(title ? ["--title", title] : [])],
+    }),
+  runFigureStudioRevise: (opts: {
+    bundleDir: string;
+    instruction: string;
+    bbox?: { x: number; y: number; w: number; h: number } | null;
+    model?: string;
+    baseDir?: string;
+    jobId?: string;
+  }) => {
+    const args = ["revise", "--bundle", opts.bundleDir, "--instruction", opts.instruction];
+    if (opts.bbox) {
+      args.push("--bbox", `${opts.bbox.x},${opts.bbox.y},${opts.bbox.w},${opts.bbox.h}`);
+    }
+    if (opts.model) args.push("--model", opts.model);
+    if (opts.baseDir) args.push("--base-dir", opts.baseDir);
+    return invoke<{ ok: boolean; synced: string[]; bundle: FigureBundle; usageReport?: UsageReport | null }>(
+      "run_figure_studio",
+      { args, jobId: opts.jobId ?? null }
+    );
+  },
+  runFigureStudioRestore: (bundleDir: string, version: string, baseDir = "") =>
+    invoke<{ ok: boolean; synced: string[]; bundle: FigureBundle }>("run_figure_studio", {
+      args: ["restore", "--bundle", bundleDir, "--version", version, ...(baseDir ? ["--base-dir", baseDir] : [])],
+      jobId: null,
+    }),
+  runFigureStudioCreate: (opts: {
+    outDir?: string;
+    mode: "data_code" | "schematic_svg" | "concept_image";
+    prompt: string;
+    title?: string;
+    dataFile?: string;
+    refImage?: string;
+    model?: string;
+    jobId?: string;
+  }) => {
+    const args = ["create", "--out-dir", opts.outDir ?? "", "--mode", opts.mode, "--prompt", opts.prompt];
+    if (opts.title) args.push("--title", opts.title);
+    if (opts.dataFile) args.push("--data-file", opts.dataFile);
+    if (opts.refImage) args.push("--ref-image", opts.refImage);
+    if (opts.model) args.push("--model", opts.model);
+    return invoke<{ ok: boolean; bundle: FigureBundle; usageReport?: UsageReport | null }>(
+      "run_figure_studio",
+      { args, jobId: opts.jobId ?? null }
+    );
+  },
+
+  runDataProfile: (filePath: string) =>
+    invoke<DataProfile>("run_data_profile", { filePath }),
+  runDataAnalysis: (filePath: string, question: string, model?: string, jobId?: string) =>
+    invoke<DataAnalysisResult>("run_data_analysis", {
+      filePath,
+      question,
+      model: model ?? null,
+      jobId: jobId ?? null,
+    }),
+  runSopWorkflow: (sop: SopKind, payload: Record<string, unknown>, model?: string, jobId?: string) =>
+    invoke<SopWorkflowResult>("run_sop_workflow", {
+      sop,
+      payload,
+      model: model ?? null,
+      jobId: jobId ?? null,
+    }),
+  runCustomSkill: (skillId: string, prompt: string, attachedFiles: string[], model?: string, jobId?: string) =>
+    invoke<{ ok: boolean; outDir: string; outputPath: string; outputMarkdown: string; usageReport?: UsageReport | null }>(
+      "run_custom_skill",
+      {
+        skillId,
+        prompt,
+        attachedFiles,
+        model: model ?? null,
+        jobId: jobId ?? null,
+      }
+    ),
+  cancelStudioJob: (jobId: string) => invoke<boolean>("cancel_studio_job", { jobId }),
+
+  listLibraryItems: () => invoke<LibraryItem[]>("list_library_items"),
+  saveLibraryItem: (input: SaveLibraryItemInput) => invoke<LibraryItem>("save_library_item", { input }),
+  deleteLibraryItem: (id: string) => invoke<void>("delete_library_item", { id }),
+  searchLibraryOnline: (query: string, limit = 15, expand = true) =>
+    invoke<{ ok: boolean; query: string; expandedQueries: string[]; items: Array<Partial<LibraryItem>> }>(
+      "run_library_tool",
+      {
+        args: ["search-online", "--query", query, "--limit", String(limit), ...(expand ? ["--expand"] : [])],
+        itemsPayload: null,
+      }
+    ),
+  importLibraryPdf: (pdfPath: string) =>
+    invoke<{ ok: boolean; item: Partial<LibraryItem> }>("run_library_tool", {
+      args: ["import-pdf", "--pdf", pdfPath],
+      itemsPayload: null,
+    }),
+  importLibraryDoi: (doi: string) =>
+    invoke<{ ok: boolean; item: Partial<LibraryItem> }>("run_library_tool", {
+      args: ["import-doi", "--doi", doi],
+      itemsPayload: null,
+    }),
+  buildLibraryGraph: (items: LibraryItem[]) =>
+    invoke<{ ok: boolean; graph: KnowledgeGraph }>("run_library_tool", {
+      args: ["build-graph"],
+      itemsPayload: items,
+    }),
+  exportLibraryBib: (items: LibraryItem[], format: "bibtex" | "gb7714") =>
+    invoke<{ ok: boolean; format: string; count: number; text: string }>("run_library_tool", {
+      args: ["export-bib", "--format", format],
+      itemsPayload: items,
+    }),
+
+  runLatexCopilotEdit: (opts: {
+    file: string;
+    instruction: string;
+    selectionStart?: number;
+    selectionEnd?: number;
+    errorLog?: string;
+    model?: string;
+  }) => {
+    const args = ["edit", "--file", opts.file, "--instruction", opts.instruction];
+    if (opts.selectionStart && opts.selectionEnd) {
+      args.push("--selection-start", String(opts.selectionStart), "--selection-end", String(opts.selectionEnd));
+    }
+    if (opts.errorLog) args.push("--error-log", opts.errorLog);
+    if (opts.model) args.push("--model", opts.model);
+    return invoke<LatexCopilotEditResult>("run_latex_copilot", { args });
+  },
+  runLatexCopilotTrace: (runDir: string, texFile?: string) =>
+    invoke<{ ok: boolean; texFile: string; count: number; traces: CitationTraceItem[] }>("run_latex_copilot", {
+      args: ["trace-citations", "--run-dir", runDir, ...(texFile ? ["--tex-file", texFile] : [])],
+    }),
+
+  listResearchMemories: () => invoke<ResearchMemory[]>("list_research_memories"),
+  saveResearchMemory: (input: SaveResearchMemoryInput) =>
+    invoke<ResearchMemory>("save_research_memory", { input }),
+  deleteResearchMemory: (id: string) => invoke<void>("delete_research_memory", { id }),
+  getResearchPreferences: () => invoke<ResearchPreferences>("get_research_preferences"),
+  saveResearchPreferences: (prefs: ResearchPreferences) =>
+    invoke<ResearchPreferences>("save_research_preferences", { prefs }),
+
+  listSshHosts: () => invoke<SshHost[]>("list_ssh_hosts"),
+  saveSshHost: (input: SaveSshHostInput) => invoke<SshHost>("save_ssh_host", { input }),
+  deleteSshHost: (id: string) => invoke<void>("delete_ssh_host", { id }),
+  testSshHost: (id: string) => invoke<SshTestResult>("test_ssh_host", { id }),
+  execSshCommand: (id: string, command: string, workDir?: string) =>
+    invoke<SshExecResult>("exec_ssh_command", { id, command, workDir: workDir ?? null }),
+  scpTransfer: (id: string, direction: "upload" | "download", localPath: string, remotePath: string) =>
+    invoke<string>("scp_transfer", { id, direction, localPath, remotePath }),
+
+  listSkills: () => invoke<SkillEntry[]>("list_skills"),
+  saveSkill: (input: SaveSkillInput) => invoke<SkillEntry>("save_skill", { input }),
+  deleteSkill: (skillId: string) => invoke<void>("delete_skill", { skillId }),
+  importSkillFromFile: (path: string) => invoke<SkillEntry>("import_skill_from_file", { path }),
+  importSkillFromUrl: (url: string) => invoke<SkillEntry>("import_skill_from_url", { url }),
+
+  getExportEnvironment: () => invoke<ExportEnvironmentInfo>("get_export_environment"),
+  exportMarkdownDocument: (
+    markdown: string,
+    title: string,
+    format: "docx" | "pdf" | "html",
+    outputPath: string
+  ) =>
+    invoke<DocumentExportResult>("export_markdown_document", {
+      markdown,
+      title,
+      format,
+      outputPath,
+    }),
+  exportMarkdownToGoogleDrive: (
+    markdown: string,
+    title: string,
+    format: "docx" | "pdf",
+    driveDir?: string
+  ) =>
+    invoke<GoogleDriveExportResult>("export_markdown_to_google_drive", {
+      markdown,
+      title,
+      format,
+      driveDir: driveDir ?? null,
+    }),
+
   pickDirectory: async (defaultPath?: string): Promise<string | null> => {
     const selected = await open({
       directory: true,
@@ -170,6 +379,11 @@ export const api = {
     handler: (payload: RunStatusEventPayload) => void
   ): Promise<UnlistenFn> =>
     listen<RunStatusEventPayload>("run-status", (e) => handler(e.payload)),
+
+  onStudioEvent: (
+    handler: (payload: StudioEventPayload) => void
+  ): Promise<UnlistenFn> =>
+    listen<StudioEventPayload>("studio-event", (e) => handler(e.payload)),
 };
 
 export function base64ToBytes(base64: string): Uint8Array<ArrayBuffer> {

@@ -5,7 +5,9 @@ import {
   FileArchive,
   FileText,
   FolderOpen,
+  GitFork,
   Loader2,
+  Play,
   ScrollText,
   Search,
   Square,
@@ -18,10 +20,12 @@ import { api, formatIsoShort } from "../api";
 import { formatCad, parseUsageReport } from "../runReports";
 import {
   PIPELINE_STAGES,
+  type PipelineState,
   type RunLogEntry,
   type RunRecord,
 } from "../types";
 import "./runs.css";
+import "./studio.css";
 
 interface RunsViewProps {
   runs: RunRecord[];
@@ -29,6 +33,7 @@ interface RunsViewProps {
   onSelectRun: (runId: string) => void;
   logs: RunLogEntry[];
   onStopRun: (runId: string) => Promise<void>;
+  onResumeRun?: (runId: string) => Promise<void>;
   onDeleteRun: (runId: string) => Promise<void>;
   onOpenArtifacts: (runId: string) => void;
   /** "导出 Overleaf 包" for a finished run; resolves to the written path or null. */
@@ -267,6 +272,7 @@ export function RunsView({
   onSelectRun,
   logs,
   onStopRun,
+  onResumeRun,
   onDeleteRun,
   onOpenArtifacts,
   onExportLatex,
@@ -275,6 +281,8 @@ export function RunsView({
   const [exportingRunId, setExportingRunId] = useState<string | null>(null);
   const [textFilter, setTextFilter] = useState("");
   const [autoScroll, setAutoScroll] = useState(true);
+  const [pipelineState, setPipelineState] = useState<PipelineState | null>(null);
+  const [showGraph, setShowGraph] = useState(false);
   const consoleRef = useRef<HTMLDivElement | null>(null);
   const costs = useRunCosts(runs);
   const costTotal = useMemo(() => {
@@ -294,6 +302,33 @@ export function RunsView({
     () => runs.find((r) => r.id === selectedRunId) ?? runs[0] ?? null,
     [runs, selectedRunId]
   );
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!selectedRun) {
+      setPipelineState(null);
+      return;
+    }
+    const readState = async () => {
+      try {
+        const text = await api.readRunTextArtifact(selectedRun.runDir, "pipeline_state.json");
+        if (!cancelled) setPipelineState(JSON.parse(text) as PipelineState);
+      } catch {
+        if (!cancelled) setPipelineState(null);
+      }
+    };
+    void readState();
+    if (selectedRun.status !== "running") {
+      return () => {
+        cancelled = true;
+      };
+    }
+    const timer = window.setInterval(() => void readState(), 5000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [selectedRun?.id, selectedRun?.status, selectedRun?.currentStage]);
 
   const visibleStages = useMemo(() => {
     if (!selectedRun || selectedRun.usePlotting) return PIPELINE_STAGES;
@@ -487,6 +522,26 @@ export function RunsView({
                     <Square size={12} aria-hidden="true" /> 停止运行
                   </button>
                 )}
+                {!isRunning &&
+                  onResumeRun &&
+                  (selectedRun.status === "failed" || selectedRun.status === "cancelled") && (
+                    <button
+                      type="button"
+                      className="btn btn-primary btn-sm"
+                      title="Loop 断点续跑：跳过已完成阶段（大纲/文献/绘图/初稿），从中断节点继续生成"
+                      onClick={() => void onResumeRun(selectedRun.id)}
+                    >
+                      <Play size={12} aria-hidden="true" /> 断点续跑 (Loop)
+                    </button>
+                  )}
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  onClick={() => setShowGraph((v) => !v)}
+                  title="查看任务编队 DAG 状态图与中断问题记录"
+                >
+                  <GitFork size={13} aria-hidden="true" /> 编队图与问题记录
+                </button>
                 <button
                   type="button"
                   className="btn btn-sm"
@@ -651,6 +706,55 @@ export function RunsView({
                   </div>
                   <div className="rv-alert-msg">{selectedRun.errorMessage}</div>
                 </div>
+              </div>
+            )}
+
+            {showGraph && (
+              <div className="rg-card">
+                <div className="row" style={{ justifyContent: "space-between", flexWrap: "wrap", gap: 6 }}>
+                  <strong style={{ fontSize: "var(--fs-sm)" }}>
+                    Graph 并行编队与断点状态 {pipelineState?.resumed ? "· 已从断点续跑" : ""}
+                  </strong>
+                  <span className="hint">
+                    {pipelineState
+                      ? `更新于 ${formatIsoShort(pipelineState.updated_at)} · 共 ${pipelineState.issues.length} 条问题记录`
+                      : "未找到 pipeline_state.json（当前使用运行阶段推算状态）"}
+                  </span>
+                </div>
+                {pipelineState ? (
+                  <>
+                    <div className="rg-nodes">
+                      {pipelineState.nodes.map((node) => (
+                        <div key={node.id} className={`rg-node is-${node.status}`}>
+                          <div className="row" style={{ justifyContent: "space-between" }}>
+                            <strong style={{ fontSize: "var(--fs-sm)" }}>{node.label}</strong>
+                            <span className="badge badge-neutral">{node.status}</span>
+                          </div>
+                          <span className="hint st-mono" title={node.artifact}>
+                            {node.depends_on.length ? `前置: ${node.depends_on.join("+")}` : "起点"} · {node.model || "跳过"}
+                          </span>
+                          {node.note && <span className="hint">{node.note}</span>}
+                          {node.error && (
+                            <span className="hint" style={{ color: "var(--danger)" }}>
+                              {node.error}
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                    {pipelineState.issues.length > 0 && (
+                      <div className="stack" style={{ marginTop: 8 }}>
+                        <strong style={{ fontSize: "var(--fs-xs)" }}>问题与重试记录</strong>
+                        {pipelineState.issues.map((iss, idx) => (
+                          <div key={idx} className="rs-file-pill" style={{ justifyContent: "flex-start" }}>
+                            <span className="badge badge-failed">{iss.stage}</span>
+                            <span className="hint st-mono">{iss.message}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                ) : null}
               </div>
             )}
 

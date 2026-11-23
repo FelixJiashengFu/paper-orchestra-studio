@@ -15,8 +15,8 @@ use tokio::sync::{mpsc, Mutex};
 use uuid::Uuid;
 
 use crate::db::{
-    create_run, finish_run, get_project, get_run, get_settings, insert_run_logs_batch, now_iso,
-    update_run_stage, DbState,
+    build_research_preferences_markdown, create_run, finish_run, get_project, get_run,
+    get_settings, insert_run_logs_batch, now_iso, resume_run_record, update_run_stage, DbState,
 };
 use crate::diagnostics::mask_log_line;
 use crate::env_config::{enriched_path_env, secret_values};
@@ -102,122 +102,38 @@ fn detect_stage(current: &str, line: &str, use_plotting: bool) -> String {
     current.to_string()
 }
 
-pub async fn start_run(app: AppHandle, project_id: String) -> Result<RunRecord, String> {
-    let (settings, project) = {
-        let db = app.state::<DbState>();
-        let conn = db.conn.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
-        let settings = get_settings(&conn, &db.db_path)?;
-        let project = get_project(&conn, &project_id)?;
-        (settings, project)
-    };
-
-    if project.idea_markdown.trim().is_empty() {
-        return Err("Research Idea cannot be empty before running PaperOrchestra.".to_string());
-    }
-    if project.experimental_log_markdown.trim().is_empty() {
-        return Err("Experimental Log cannot be empty before running PaperOrchestra.".to_string());
-    }
-
-    let repo_dir = Path::new(&settings.paper_orchestra_dir);
-    let cli_script = repo_dir.join("paper_writing_cli.py");
-    if !cli_script.is_file() {
-        if let Some(hint) = crate::env_config::offline_volume_hint(repo_dir) {
-            return Err(hint);
+fn write_preferences_file(raw_materials_dir: &Path, prefs_md: &str) -> Result<(), String> {
+    let prefs_path = raw_materials_dir.join("research_preferences.md");
+    if prefs_md.trim().is_empty() {
+        if prefs_path.is_file() {
+            let _ = fs::remove_file(&prefs_path);
         }
-        return Err(format!(
-            "paper_writing_cli.py not found in '{}'. Please verify Settings -> PaperOrchestra Directory.",
-            settings.paper_orchestra_dir
-        ));
+        return Ok(());
     }
+    fs::write(&prefs_path, prefs_md.as_bytes())
+        .map_err(|e| format!("Failed to write research_preferences.md: {e}"))
+}
 
-    let template_dir = repo_dir.join("templates").join(&project.template_name);
-    if !template_dir.is_dir() {
-        return Err(format!(
-            "LaTeX template directory not found: {}",
-            template_dir.display()
-        ));
-    }
-
-    let run_id = Uuid::new_v4().to_string();
-    let short_id = &run_id[..8];
-    let stamp = Utc::now().format("%Y%m%d_%H%M%S");
-    let folder_name = format!("{}_{}_{}", sanitize_slug(&project.title), stamp, short_id);
-    let run_dir = Path::new(&settings.output_root_dir).join(folder_name);
-    let raw_materials_dir = run_dir.join("raw_materials");
-    let figures_dir = raw_materials_dir.join("figures");
-
-    fs::create_dir_all(&figures_dir)
-        .map_err(|e| format!("Failed to create run directory '{}': {e}", figures_dir.display()))?;
-
-    fs::write(
-        raw_materials_dir.join("idea_sparse.md"),
-        project.idea_markdown.as_bytes(),
-    )
-    .map_err(|e| format!("Failed to write idea_sparse.md: {e}"))?;
-
-    fs::write(
-        raw_materials_dir.join("experimental_log.md"),
-        project.experimental_log_markdown.as_bytes(),
-    )
-    .map_err(|e| format!("Failed to write experimental_log.md: {e}"))?;
-
-    if !project.figures.is_empty() {
-        let mut fig_infos = Vec::new();
-        for fig in &project.figures {
-            let src = Path::new(&fig.source_path);
-            if !src.is_file() {
-                return Err(format!(
-                    "Attached figure file does not exist: {}",
-                    fig.source_path
-                ));
-            }
-            let dst = figures_dir.join(&fig.file_name);
-            fs::copy(src, &dst)
-                .map_err(|e| format!("Failed to copy figure '{}': {e}", fig.file_name))?;
-            fig_infos.push(FigureInfoEntry {
-                name: &fig.file_name,
-                caption: &fig.caption,
-            });
-        }
-        let info_json = serde_json::to_string_pretty(&fig_infos)
-            .map_err(|e| format!("Failed to serialize figures info.json: {e}"))?;
-        fs::write(figures_dir.join("info.json"), info_json.as_bytes())
-            .map_err(|e| format!("Failed to write figures/info.json: {e}"))?;
-    }
-
-    let run_dir_str = run_dir.to_string_lossy().to_string();
-    let run_record = RunRecord {
-        id: run_id.clone(),
-        project_id: project.id.clone(),
-        status: "running".to_string(),
-        current_stage: "outline".to_string(),
-        template_name: project.template_name.clone(),
-        writer_model: project.writer_model.clone(),
-        reflection_model: project.reflection_model.clone(),
-        use_plotting: project.use_plotting,
-        run_dir: run_dir_str.clone(),
-        pdf_path: None,
-        started_at: now_iso(),
-        finished_at: None,
-        exit_code: None,
-        error_message: None,
-    };
-
-    let created_run = {
-        let db = app.state::<DbState>();
-        let conn = db.conn.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
-        create_run(&conn, &run_record)?
-    };
-
-    let mut cmd = Command::new(&settings.python_path);
+#[allow(clippy::too_many_arguments)]
+fn build_cli_command(
+    python_path: &str,
+    cli_script: &Path,
+    repo_dir: &Path,
+    raw_materials_dir: &Path,
+    run_dir: &Path,
+    template_dir: &Path,
+    project: &crate::models::Project,
+    resume: bool,
+) -> Command {
+    let mut cmd = Command::new(python_path);
     cmd.arg("-u")
-        .arg(&cli_script)
+        .arg(cli_script)
         .arg("--raw_materials_dir")
-        .arg(&raw_materials_dir)
+        .arg(raw_materials_dir)
         .arg("--output_dir")
-        .arg(&run_dir)
+        .arg(run_dir)
         .arg("--latex_template_dir")
-        .arg(&template_dir)
+        .arg(template_dir)
         .arg("--idea_filename")
         .arg("idea_sparse.md")
         .arg("--experimental_log_filename")
@@ -227,11 +143,9 @@ pub async fn start_run(app: AppHandle, project_id: String) -> Result<RunRecord, 
         .arg("--reflection_model_name")
         .arg(&project.reflection_model)
         .arg("--use_plotting")
-        .arg(if project.use_plotting { "true" } else { "false" });
-
-    // Literature up to and including the month the run starts. A value saved
-    // on the project by older versions is ignored.
-    cmd.arg("--research_cutoff").arg(current_research_cutoff());
+        .arg(if project.use_plotting { "true" } else { "false" })
+        .arg("--research_cutoff")
+        .arg(current_research_cutoff());
 
     if project.use_plotting {
         cmd.arg("--plotting_model_name")
@@ -240,6 +154,9 @@ pub async fn start_run(app: AppHandle, project_id: String) -> Result<RunRecord, 
             .arg(&project.image_model)
             .arg("--plotting_max_critic_rounds")
             .arg(project.plotting_max_critic_rounds.to_string());
+    }
+    if resume {
+        cmd.arg("--resume");
     }
 
     cmd.current_dir(repo_dir)
@@ -254,30 +171,43 @@ pub async fn start_run(app: AppHandle, project_id: String) -> Result<RunRecord, 
     {
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
+    cmd
+}
+
+async fn spawn_and_monitor_run(
+    app: AppHandle,
+    mut cmd: Command,
+    run_record: RunRecord,
+    log_secrets: Vec<String>,
+) -> Result<RunRecord, String> {
+    let run_id = run_record.id.clone();
+    let project_id = run_record.project_id.clone();
+    let run_dir_str = run_record.run_dir.clone();
+    let initial_stage = if run_record.current_stage.trim().is_empty() {
+        "outline".to_string()
+    } else {
+        run_record.current_stage.clone()
+    };
+    let use_plotting = run_record.use_plotting;
 
     let mut child = match cmd.spawn() {
         Ok(c) => c,
         Err(e) => {
-            let err_msg = format!(
-                "Failed to launch Python process '{}': {e}",
-                settings.python_path
-            );
-            {
-                let db = app.state::<DbState>();
-                if let Ok(conn) = db.conn.lock() {
-                    if let Ok(failed_run) = finish_run(
-                        &conn,
-                        &run_id,
-                        "failed",
-                        "outline",
-                        None,
-                        None,
-                        Some(&err_msg),
-                    ) {
-                        let _ = app.emit("run-status", RunStatusEventPayload { run: failed_run });
-                    }
-                };
-            }
+            let err_msg = format!("Failed to launch Python process: {e}");
+            let db = app.state::<DbState>();
+            if let Ok(conn) = db.conn.lock() {
+                if let Ok(failed_run) = finish_run(
+                    &conn,
+                    &run_id,
+                    "failed",
+                    &initial_stage,
+                    None,
+                    None,
+                    Some(&err_msg),
+                ) {
+                    let _ = app.emit("run-status", RunStatusEventPayload { run: failed_run });
+                }
+            };
             return Err(err_msg);
         }
     };
@@ -299,7 +229,7 @@ pub async fn start_run(app: AppHandle, project_id: String) -> Result<RunRecord, 
     let _ = app.emit(
         "run-status",
         RunStatusEventPayload {
-            run: created_run.clone(),
+            run: run_record.clone(),
         },
     );
 
@@ -307,10 +237,7 @@ pub async fn start_run(app: AppHandle, project_id: String) -> Result<RunRecord, 
     let stderr = child.stderr.take();
     let app_for_task = app.clone();
     let run_id_for_task = run_id.clone();
-    let project_id_for_task = project.id.clone();
-    let use_plotting = project.use_plotting;
-    // API keys from .env / providers.json, masked out of every stored or shown log line.
-    let log_secrets = secret_values(&settings.paper_orchestra_dir);
+    let project_id_for_task = project_id.clone();
 
     tauri::async_runtime::spawn(async move {
         let (tx, mut rx) = mpsc::unbounded_channel::<String>();
@@ -340,7 +267,7 @@ pub async fn start_run(app: AppHandle, project_id: String) -> Result<RunRecord, 
         }
         drop(tx);
 
-        let mut current_stage = "outline".to_string();
+        let mut current_stage = initial_stage;
         let mut log_buffer: Vec<(String, String, String, String)> = Vec::new();
         let mut ticker = tokio::time::interval(Duration::from_millis(250));
         let mut stream_closed = false;
@@ -464,7 +391,202 @@ pub async fn start_run(app: AppHandle, project_id: String) -> Result<RunRecord, 
         };
     });
 
-    Ok(created_run)
+    Ok(run_record)
+}
+
+pub async fn start_run(app: AppHandle, project_id: String) -> Result<RunRecord, String> {
+    let (settings, project, prefs_md) = {
+        let db = app.state::<DbState>();
+        let conn = db.conn.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
+        let settings = get_settings(&conn, &db.db_path)?;
+        let project = get_project(&conn, &project_id)?;
+        let prefs_md = build_research_preferences_markdown(&conn).unwrap_or_default();
+        (settings, project, prefs_md)
+    };
+
+    if project.idea_markdown.trim().is_empty() {
+        return Err("Research Idea cannot be empty before running PaperOrchestra.".to_string());
+    }
+    if project.experimental_log_markdown.trim().is_empty() {
+        return Err("Experimental Log cannot be empty before running PaperOrchestra.".to_string());
+    }
+
+    let repo_dir = Path::new(&settings.paper_orchestra_dir);
+    let cli_script = repo_dir.join("paper_writing_cli.py");
+    if !cli_script.is_file() {
+        if let Some(hint) = crate::env_config::offline_volume_hint(repo_dir) {
+            return Err(hint);
+        }
+        return Err(format!(
+            "paper_writing_cli.py not found in '{}'. Please verify Settings -> PaperOrchestra Directory.",
+            settings.paper_orchestra_dir
+        ));
+    }
+
+    let template_dir = repo_dir.join("templates").join(&project.template_name);
+    if !template_dir.is_dir() {
+        return Err(format!(
+            "LaTeX template directory not found: {}",
+            template_dir.display()
+        ));
+    }
+
+    let run_id = Uuid::new_v4().to_string();
+    let short_id = &run_id[..8];
+    let stamp = Utc::now().format("%Y%m%d_%H%M%S");
+    let folder_name = format!("{}_{}_{}", sanitize_slug(&project.title), stamp, short_id);
+    let run_dir = Path::new(&settings.output_root_dir).join(folder_name);
+    let raw_materials_dir = run_dir.join("raw_materials");
+    let figures_dir = raw_materials_dir.join("figures");
+
+    fs::create_dir_all(&figures_dir)
+        .map_err(|e| format!("Failed to create run directory '{}': {e}", figures_dir.display()))?;
+
+    fs::write(
+        raw_materials_dir.join("idea_sparse.md"),
+        project.idea_markdown.as_bytes(),
+    )
+    .map_err(|e| format!("Failed to write idea_sparse.md: {e}"))?;
+
+    fs::write(
+        raw_materials_dir.join("experimental_log.md"),
+        project.experimental_log_markdown.as_bytes(),
+    )
+    .map_err(|e| format!("Failed to write experimental_log.md: {e}"))?;
+
+    write_preferences_file(&raw_materials_dir, &prefs_md)?;
+
+    if !project.figures.is_empty() {
+        let mut fig_infos = Vec::new();
+        for fig in &project.figures {
+            let src = Path::new(&fig.source_path);
+            if !src.is_file() {
+                return Err(format!(
+                    "Attached figure file does not exist: {}",
+                    fig.source_path
+                ));
+            }
+            let dst = figures_dir.join(&fig.file_name);
+            fs::copy(src, &dst)
+                .map_err(|e| format!("Failed to copy figure '{}': {e}", fig.file_name))?;
+            fig_infos.push(FigureInfoEntry {
+                name: &fig.file_name,
+                caption: &fig.caption,
+            });
+        }
+        let info_json = serde_json::to_string_pretty(&fig_infos)
+            .map_err(|e| format!("Failed to serialize figures info.json: {e}"))?;
+        fs::write(figures_dir.join("info.json"), info_json.as_bytes())
+            .map_err(|e| format!("Failed to write figures/info.json: {e}"))?;
+    }
+
+    let run_dir_str = run_dir.to_string_lossy().to_string();
+    let run_record = RunRecord {
+        id: run_id.clone(),
+        project_id: project.id.clone(),
+        status: "running".to_string(),
+        current_stage: "outline".to_string(),
+        template_name: project.template_name.clone(),
+        writer_model: project.writer_model.clone(),
+        reflection_model: project.reflection_model.clone(),
+        use_plotting: project.use_plotting,
+        run_dir: run_dir_str,
+        pdf_path: None,
+        started_at: now_iso(),
+        finished_at: None,
+        exit_code: None,
+        error_message: None,
+    };
+
+    let created_run = {
+        let db = app.state::<DbState>();
+        let conn = db.conn.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
+        create_run(&conn, &run_record)?
+    };
+
+    let cmd = build_cli_command(
+        &settings.python_path,
+        &cli_script,
+        repo_dir,
+        &raw_materials_dir,
+        &run_dir,
+        &template_dir,
+        &project,
+        false,
+    );
+    let log_secrets = secret_values(&settings.paper_orchestra_dir);
+    spawn_and_monitor_run(app, cmd, created_run, log_secrets).await
+}
+
+pub async fn resume_run(app: AppHandle, run_id: String) -> Result<RunRecord, String> {
+    {
+        let active = app.state::<ActiveRunsState>();
+        let map = active.runs.lock().await;
+        if map.contains_key(&run_id) {
+            return Err("该任务正在运行中，无需重复续跑。".to_string());
+        }
+    }
+
+    let (settings, existing, project, prefs_md) = {
+        let db = app.state::<DbState>();
+        let conn = db.conn.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
+        let settings = get_settings(&conn, &db.db_path)?;
+        let existing = get_run(&conn, &run_id)?;
+        let project = get_project(&conn, &existing.project_id)?;
+        let prefs_md = build_research_preferences_markdown(&conn).unwrap_or_default();
+        (settings, existing, project, prefs_md)
+    };
+
+    if existing.status == "running" {
+        return Err("该任务处于运行状态。".to_string());
+    }
+
+    let repo_dir = Path::new(&settings.paper_orchestra_dir);
+    let cli_script = repo_dir.join("paper_writing_cli.py");
+    if !cli_script.is_file() {
+        if let Some(hint) = crate::env_config::offline_volume_hint(repo_dir) {
+            return Err(hint);
+        }
+        return Err(format!("找不到 paper_writing_cli.py：{}", cli_script.display()));
+    }
+
+    let run_dir = Path::new(&existing.run_dir);
+    let raw_materials_dir = run_dir.join("raw_materials");
+    if !raw_materials_dir.is_dir() {
+        return Err(format!(
+            "该运行的原始材料目录不存在，无法从断点续跑：{}",
+            raw_materials_dir.display()
+        ));
+    }
+
+    let template_dir = repo_dir.join("templates").join(&existing.template_name);
+    if !template_dir.is_dir() {
+        return Err(format!(
+            "找不到模板目录：{}",
+            template_dir.display()
+        ));
+    }
+
+    write_preferences_file(&raw_materials_dir, &prefs_md)?;
+
+    let resumed_run = {
+        let db = app.state::<DbState>();
+        let conn = db.conn.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
+        resume_run_record(&conn, &run_id)?
+    };
+
+    let cmd = build_cli_command(
+        &settings.python_path,
+        &cli_script,
+        repo_dir,
+        &raw_materials_dir,
+        run_dir,
+        &template_dir,
+        &project,
+        true,
+    );
+    let log_secrets = secret_values(&settings.paper_orchestra_dir);
+    spawn_and_monitor_run(app, cmd, resumed_run, log_secrets).await
 }
 
 fn flush_logs(app: &AppHandle, buffer: &mut Vec<(String, String, String, String)>) {

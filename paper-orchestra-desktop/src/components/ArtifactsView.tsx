@@ -49,7 +49,17 @@ import type {
   UsageReport,
 } from "../types";
 import { RunDuration, StatusBadge } from "./RunsView";
-import { ArxivPanel, BlindPanel, CiteOnlinePanel, DiagnosePanel, DiffPanel, ManuscriptAuditPanel } from "./SubmissionPanels";
+import { DocumentArtifactView } from "./DocumentArtifactView";
+import { FigureReviewBench } from "./FigureReviewBench";
+import {
+  ArxivPanel,
+  BlindPanel,
+  CiteOnlinePanel,
+  DiagnosePanel,
+  DiffPanel,
+  LeanAuditPanel,
+  ManuscriptAuditPanel,
+} from "./SubmissionPanels";
 import "./runs.css";
 import "./live-editor.css";
 
@@ -60,6 +70,7 @@ interface ArtifactsViewProps {
   run: RunRecord | null;
   /** "导出 Overleaf 包"; resolves to the written .zip path, or null when cancelled / failed. */
   onExportLatex?: (run: RunRecord, opts?: { quietSuccess?: boolean }) => Promise<string | null>;
+  onToast?: (msg: string, isError?: boolean) => void;
 }
 
 type ArtifactSubTab =
@@ -76,6 +87,7 @@ type ArtifactSubTab =
   | "blind"
   | "diagnose"
   | "manuscriptAudit"
+  | "leanAudit"
   | "diff";
 
 interface NavItem {
@@ -91,7 +103,7 @@ const PREVIEW_TITLES: Record<ArtifactSubTab, string> = {
   latex: "LaTeX 源码",
   outline: "论文大纲",
   citations: "引文映射",
-  figures: "生成图表",
+  figures: "科研绘图审阅台",
   refinement: "润色评审记录",
   audit: "引用核查",
   usage: "LLM 用量",
@@ -100,6 +112,7 @@ const PREVIEW_TITLES: Record<ArtifactSubTab, string> = {
   blind: "双盲投稿检查",
   diagnose: "LaTeX 诊断",
   manuscriptAudit: "论文体检 (Nature)",
+  leanAudit: "Lean 4 形式化核验",
   diff: "改动对比 PDF",
 };
 
@@ -109,7 +122,7 @@ interface LoadedReport<T> {
   data: T | null;
 }
 
-export function ArtifactsView({ run, onExportLatex }: ArtifactsViewProps) {
+export function ArtifactsView({ run, onExportLatex, onToast }: ArtifactsViewProps) {
   const [subTab, setSubTab] = useState<ArtifactSubTab>("pdf");
   const [summary, setSummary] = useState<RunArtifactsSummary | null>(null);
   const [loading, setLoading] = useState(false);
@@ -409,6 +422,7 @@ export function ArtifactsView({ run, onExportLatex }: ArtifactsViewProps) {
   const hasLatex = !!exportSource;
   const submitItems: NavItem[] = [
     { id: "manuscriptAudit", label: "论文体检 (Nature)", icon: ClipboardCheck, ready: hasLatex },
+    { id: "leanAudit", label: "Lean 4 核验", icon: ShieldCheck, ready: true },
     { id: "arxiv", label: "arXiv 投稿包", icon: Send, ready: hasLatex },
     { id: "blind", label: "双盲检查", icon: EyeOff, ready: hasLatex },
     { id: "diagnose", label: "LaTeX 诊断", icon: Stethoscope, ready: hasLatex },
@@ -476,6 +490,7 @@ export function ArtifactsView({ run, onExportLatex }: ArtifactsViewProps) {
     blind: "tools/submission_tools.py blind",
     diagnose: "tools/submission_tools.py diagnose",
     manuscriptAudit: "tools/submission_tools.py manuscript-audit",
+    leanAudit: "tools/submission_tools.py lean-audit",
     diff: "latexdiff",
   };
 
@@ -702,55 +717,36 @@ export function ArtifactsView({ run, onExportLatex }: ArtifactsViewProps) {
                 </EmptyPreview>
               ))}
 
-            {subTab === "figures" &&
-              (figureUrls.length === 0 && !plottingJson ? (
-                <EmptyPreview icon={<ImageIcon size={20} strokeWidth={1.6} />} title="暂无生成图表">
-                  {run.usePlotting
-                    ? "Plotting Agent 生成的图表会显示在这里。"
-                    : "本次运行未启用绘图，因此没有生成图表。"}
-                </EmptyPreview>
-              ) : (
-                <>
-                  {figureUrls.length > 0 && (
-                    <div className="av-figures">
-                      {figureUrls.map((f, i) => {
-                        const name = basename(f.path);
-                        return (
-                          <figure key={f.path} className="av-figure">
-                            <div className="av-figure-frame">
-                              <img src={f.url} alt={name} />
-                            </div>
-                            <figcaption>
-                              <span className="av-figure-no">图 {i + 1}</span>
-                              <span className="av-figure-name" title={f.path}>
-                                {name}
-                              </span>
-                            </figcaption>
-                          </figure>
-                        );
-                      })}
-                    </div>
-                  )}
-                  {plottingJson && (
-                    <details className="av-details" open={figureUrls.length === 0}>
-                      <summary>
-                        <ChevronRight size={13} className="av-chev" aria-hidden="true" />
-                        绘图结果明细
-                        <span className="av-sub-file">plotting_results.json</span>
-                      </summary>
-                      <CodeView text={plottingJson} lang="json" />
-                    </details>
-                  )}
-                </>
-              ))}
+            {subTab === "figures" && (
+              <div className="stack">
+                <FigureReviewBench
+                  baseDir={run.runDir}
+                  readOnly={running}
+                  onToast={onToast}
+                  onFigureUpdated={() => void refreshArtifacts()}
+                />
+                {plottingJson && (
+                  <details className="av-details" open={figureUrls.length === 0}>
+                    <summary>
+                      <ChevronRight size={13} className="av-chev" aria-hidden="true" />
+                      绘图结果明细
+                      <span className="av-sub-file">plotting_results.json</span>
+                    </summary>
+                    <CodeView text={plottingJson} lang="json" />
+                  </details>
+                )}
+              </div>
+            )}
 
             {subTab === "audit" &&
               (audit?.data ? (
                 <AuditPanel
                   audit={audit.data}
+                  runDir={run.runDir}
                   mdPath={summary?.citationAuditMdPath ?? null}
                   citedBibPath={summary?.citedBibPath ?? null}
                   exportBib={summary?.latexExportBib ?? null}
+                  onToast={onToast}
                 />
               ) : audit ? (
                 <BrokenReport file="citation_audit.json" text={audit.text} />
@@ -795,6 +791,7 @@ export function ArtifactsView({ run, onExportLatex }: ArtifactsViewProps) {
 
             {subTab === "citeOnline" && <CiteOnlinePanel run={run} running={running} />}
             {subTab === "manuscriptAudit" && <ManuscriptAuditPanel run={run} running={running} />}
+            {subTab === "leanAudit" && <LeanAuditPanel running={running} />}
             {subTab === "arxiv" && <ArxivPanel run={run} running={running} />}
             {subTab === "blind" && <BlindPanel run={run} running={running} />}
             {subTab === "diagnose" && <DiagnosePanel run={run} running={running} />}
@@ -1099,19 +1096,31 @@ function KeyList({ keys }: { keys: string[] }) {
 
 function AuditPanel({
   audit,
+  runDir,
   mdPath,
   citedBibPath,
   exportBib,
+  onToast,
 }: {
   audit: CitationAudit;
+  runDir: string;
   mdPath: string | null;
   citedBibPath: string | null;
   exportBib: LatexExportBib | null;
+  onToast?: (msg: string, isError?: boolean) => void;
 }) {
   const [filter, setFilter] = useState<AuditFilter>("all");
   // Library entries the text never cites are folded away by default: they are
   // not part of the paper's reference list.
   const [showUncited, setShowUncited] = useState(false);
+  const [showAuditMd, setShowAuditMd] = useState(false);
+  const [auditMdText, setAuditMdText] = useState("");
+  const [auditMdBusy, setAuditMdBusy] = useState(false);
+
+  useEffect(() => {
+    setShowAuditMd(false);
+    setAuditMdText("");
+  }, [runDir]);
   const s = audit.summary;
   const entries = audit.entries;
 
@@ -1278,22 +1287,61 @@ function AuditPanel({
                 </button>
               )}
               {mdPath && (
-                <button
-                  type="button"
-                  className="btn btn-sm"
-                  onClick={() =>
-                    api
-                      .openPathInSystem(mdPath)
-                      .catch(() => api.revealPathInExplorer(mdPath).catch(() => undefined))
-                  }
-                >
-                  <ExternalLink size={13} aria-hidden="true" /> 打开 citation_audit.md
-                </button>
+                <>
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    onClick={async () => {
+                      if (showAuditMd) {
+                        setShowAuditMd(false);
+                        return;
+                      }
+                      if (!auditMdText) {
+                        setAuditMdBusy(true);
+                        try {
+                          const txt = await api.readRunTextArtifact(runDir, "citation_audit.md");
+                          setAuditMdText(txt);
+                        } catch (e) {
+                          onToast?.(`读取 citation_audit.md 失败：${e}`, true);
+                          setAuditMdBusy(false);
+                          return;
+                        } finally {
+                          setAuditMdBusy(false);
+                        }
+                      }
+                      setShowAuditMd(true);
+                    }}
+                  >
+                    {auditMdBusy ? <Loader2 size={13} className="spin" aria-hidden="true" /> : <FileText size={13} aria-hidden="true" />}
+                    {showAuditMd ? "收起报告" : "阅读 & 导出报告"}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    onClick={() =>
+                      api
+                        .openPathInSystem(mdPath)
+                        .catch(() => api.revealPathInExplorer(mdPath).catch(() => undefined))
+                    }
+                  >
+                    <ExternalLink size={13} aria-hidden="true" /> 打开 citation_audit.md
+                  </button>
+                </>
               )}
             </span>
           )}
         </div>
       </section>
+
+      {showAuditMd && auditMdText && (
+        <DocumentArtifactView
+          content={auditMdText}
+          title="Citation Audit Report"
+          defaultFilename="citation_audit"
+          maxHeight={460}
+          onToast={onToast}
+        />
+      )}
 
       <div className="av-callouts">
       {audit.missing_in_bib.length > 0 && (

@@ -20,7 +20,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { downloadDir, join } from "@tauri-apps/api/path";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { api } from "../api";
-import type { RunRecord } from "../types";
+import type { LeanAuditReport, RunRecord } from "../types";
 
 type CheckState = "ok" | "warn" | "fail";
 
@@ -691,6 +691,100 @@ export function CiteOnlinePanel({ run, running }: { run: RunRecord; running: boo
                 </li>
               ))}
             </ul>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- Lean 4 audit */
+
+export function LeanAuditPanel({ running }: { running: boolean }) {
+  const [projectDir, setProjectDir] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [report, setReport] = useState<LeanAuditReport | null>(null);
+
+  async function pickAndAudit() {
+    const dir = await api.pickDirectory(projectDir || undefined);
+    if (!dir) return;
+    setProjectDir(dir);
+    setBusy(true);
+    setError("");
+    try {
+      const res = (await api.runSubmissionTool(["lean-audit", dir])) as LeanAuditReport;
+      setReport(res);
+    } catch (e) {
+      setError(errText(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function rerun() {
+    if (!projectDir) return;
+    setBusy(true);
+    setError("");
+    try {
+      const res = (await api.runSubmissionTool(["lean-audit", projectDir])) as LeanAuditReport;
+      setReport(res);
+    } catch (e) {
+      setError(errText(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="sp-panel">
+      <Intro>
+        针对形式化数学/化学定理证明项目（如 Lean 4）：扫描全项目 <code>.lean</code> 源文件并运行 <code>lake build</code>
+        ，严格统计 <code>sorry</code> / <code>admit</code> / 新增 <code>axiom</code> / <code>unsafe</code> 零容忍核验结果，防止“仅靠注释或公理凑过”。
+      </Intro>
+      <div className="sp-actions">
+        <RunButton busy={busy} disabled={running} onClick={pickAndAudit} primary busyText="正在核验 Lean 4 工程…">
+          <FolderOpen size={13} aria-hidden="true" /> 选择 Lean 4 项目目录并核验…
+        </RunButton>
+        {projectDir && (
+          <RunButton busy={busy} disabled={running} onClick={rerun} busyText="重新核验中…">
+            重新检查
+          </RunButton>
+        )}
+      </div>
+      {projectDir && <div className="sp-muted st-mono">目标目录：{projectDir}</div>}
+      {error && <ErrorBox msg={error} />}
+      {report && (
+        <>
+          <div className="sp-stats">
+            <span className="sp-stat is-ok">Lean 文件 {report.leanFiles} 个 / {report.totalLines} 行</span>
+            <span className={`sp-stat ${report.zeroHoles ? "is-ok" : "is-fail"}`}>
+              sorry={report.sorryCount} · admit={report.admitCount} · axiom={report.axiomCount}
+            </span>
+            <span className={`sp-stat ${report.buildOk ? "is-ok" : report.buildRan ? "is-fail" : "is-warn"}`}>
+              {report.buildRan ? (report.buildOk ? "lake build 编译通过" : "lake build 失败") : "未运行 lake build"}
+            </span>
+          </div>
+          {report.issues.length > 0 && (
+            <ul className="sp-checks">
+              {report.issues.map((iss, idx) => (
+                <li key={idx} className="sp-check is-fail">
+                  <div className="sp-check-row">
+                    <StateIcon state="fail" />
+                    <span className="sp-check-label">
+                      [{iss.kind}] {iss.file}:{iss.line}
+                    </span>
+                  </div>
+                  <div className="sp-check-detail st-mono">{iss.excerpt}</div>
+                </li>
+              ))}
+            </ul>
+          )}
+          {report.buildTail && (
+            <details className="le-log" open={!report.buildOk}>
+              <summary>lake build 输出尾部</summary>
+              <pre>{report.buildTail}</pre>
+            </details>
           )}
         </>
       )}

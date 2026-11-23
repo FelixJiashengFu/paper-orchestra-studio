@@ -1587,6 +1587,128 @@ def cmd_manuscript_audit(a: argparse.Namespace) -> Dict[str, Any]:
     }
 
 
+_LEAN_BLOCK_COMMENT = re.compile(r"/-[\s\S]*?-/", re.DOTALL)
+_LEAN_LINE_COMMENT = re.compile(r"--[^\n]*")
+_LEAN_SORRY = re.compile(r"\bsorry\b")
+_LEAN_ADMIT = re.compile(r"\badmit\b")
+_LEAN_AXIOM = re.compile(r"^\s*(?:private\s+|protected\s+)?axiom\b")
+_LEAN_UNSAFE = re.compile(r"\b(?:unsafe|implemented_by)\b")
+
+
+def _find_lake() -> Optional[str]:
+    cand = os.path.expanduser("~/.elan/bin/lake")
+    if os.path.isfile(cand) and os.access(cand, os.X_OK):
+        return cand
+    return which("lake")
+
+
+def cmd_lean_audit(a: argparse.Namespace) -> Dict[str, Any]:
+    proj_dir = os.path.abspath(a.project_dir)
+    if not os.path.isdir(proj_dir):
+        raise ToolError(f"Lean 项目目录不存在：{proj_dir}")
+
+    lean_files: List[str] = []
+    for root, dirs, files in os.walk(proj_dir):
+        dirs[:] = sorted(d for d in dirs if d not in (".lake", ".git", "build", "__pycache__") and not d.startswith("."))
+        for fn in sorted(files):
+            if fn.endswith(".lean"):
+                lean_files.append(os.path.join(root, fn))
+
+    if not lean_files:
+        raise ToolError(f"目录 {proj_dir} 中未找到 .lean 文件。")
+
+    total_lines = 0
+    sorry_count = 0
+    admit_count = 0
+    axiom_count = 0
+    unsafe_count = 0
+    issues: List[Dict[str, Any]] = []
+
+    for fpath in lean_files:
+        rel = os.path.relpath(fpath, proj_dir)
+        text = read_text(fpath)
+        total_lines += len(text.splitlines())
+        # Preserve line numbers by replacing block comments with equal newlines
+        no_block = _LEAN_BLOCK_COMMENT.sub(lambda m: "\n" * m.group(0).count("\n"), text)
+        for lineno, raw_line in enumerate(no_block.splitlines(), start=1):
+            code = _LEAN_LINE_COMMENT.sub("", raw_line)
+            if not code.strip():
+                continue
+            for kind, rx in (
+                ("sorry", _LEAN_SORRY),
+                ("admit", _LEAN_ADMIT),
+                ("axiom", _LEAN_AXIOM),
+                ("unsafe", _LEAN_UNSAFE),
+            ):
+                hits = len(rx.findall(code))
+                if hits:
+                    if kind == "sorry":
+                        sorry_count += hits
+                    elif kind == "admit":
+                        admit_count += hits
+                    elif kind == "axiom":
+                        axiom_count += hits
+                    elif kind == "unsafe":
+                        unsafe_count += hits
+                    if len(issues) < 100:
+                        issues.append({
+                            "kind": kind,
+                            "file": rel,
+                            "line": lineno,
+                            "excerpt": code.strip()[:160],
+                        })
+
+    lake_bin = _find_lake()
+    has_lakefile = os.path.isfile(os.path.join(proj_dir, "lakefile.lean")) or os.path.isfile(
+        os.path.join(proj_dir, "lakefile.toml")
+    )
+    build_ran = False
+    build_ok = None
+    build_tail = ""
+    if lake_bin and has_lakefile:
+        build_ran = True
+        env = tex_env()
+        elan_bin = os.path.expanduser("~/.elan/bin")
+        if os.path.isdir(elan_bin):
+            env["PATH"] = os.pathsep.join([elan_bin, env.get("PATH", "")])
+        try:
+            proc = subprocess.run(
+                [lake_bin, "build"],
+                cwd=proj_dir,
+                env=env,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                timeout=180,
+            )
+            out = proc.stdout.decode("utf-8", errors="replace")
+            build_ok = proc.returncode == 0
+            tail_lines = [ln for ln in out.splitlines() if ln.strip()][-30:]
+            build_tail = "\n".join(tail_lines)
+        except subprocess.TimeoutExpired:
+            build_ok = False
+            build_tail = "lake build 超时（>180 秒）"
+
+    zero_holes = (sorry_count + admit_count + axiom_count + unsafe_count) == 0
+    return {
+        "kind": "lean-audit",
+        "projectDir": proj_dir,
+        "lakeAvailable": bool(lake_bin),
+        "hasLakefile": has_lakefile,
+        "buildRan": build_ran,
+        "buildOk": build_ok,
+        "zeroHoles": zero_holes,
+        "leanFiles": len(lean_files),
+        "totalLines": total_lines,
+        "sorryCount": sorry_count,
+        "admitCount": admit_count,
+        "axiomCount": axiom_count,
+        "unsafeCount": unsafe_count,
+        "issues": issues,
+        "buildTail": build_tail,
+    }
+
+
 # --------------------------------------------------------------------------- main
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -1621,6 +1743,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     p = sub.add_parser("manuscript-audit")
     p.add_argument("run_dir")
     p.set_defaults(fn=cmd_manuscript_audit)
+    p = sub.add_parser("lean-audit")
+    p.add_argument("project_dir")
+    p.set_defaults(fn=cmd_lean_audit)
     a = ap.parse_args(argv)
     try:
         os.makedirs(SCRATCH_ROOT, exist_ok=True)

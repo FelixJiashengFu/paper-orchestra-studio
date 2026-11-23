@@ -97,6 +97,12 @@ def main():
         default=3,
         help="Maximum rounds of self-correction in the plotting agent.",
     )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        default=False,
+        help="Resume from the latest completed pipeline stage inside --output_dir.",
+    )
 
     args = parser.parse_args()
 
@@ -163,8 +169,13 @@ def main():
     target_raw_materials = os.path.join(base_dir, "raw_materials")
     if os.path.abspath(target_raw_materials) != os.path.abspath(args.raw_materials_dir):
         if os.path.exists(target_raw_materials):
-            shutil.rmtree(target_raw_materials)
-        shutil.copytree(args.raw_materials_dir, target_raw_materials)
+            if args.resume:
+                shutil.copytree(args.raw_materials_dir, target_raw_materials, dirs_exist_ok=True)
+            else:
+                shutil.rmtree(target_raw_materials)
+                shutil.copytree(args.raw_materials_dir, target_raw_materials)
+        else:
+            shutil.copytree(args.raw_materials_dir, target_raw_materials)
 
     if not args.use_plotting:
         has_figures = False
@@ -195,7 +206,8 @@ def main():
     if args.use_plotting:
         from methods.paper_writer_with_plotting import write_single_paper
 
-        print(f"🚀 Starting Paper Generation (WITH PLOTTING) in {base_dir}")
+        mode_note = "RESUMING" if args.resume else "Starting"
+        print(f"🚀 {mode_note} Paper Generation (WITH PLOTTING) in {base_dir}")
         write_single_paper(
             base_dir=base_dir,
             latex_template_dir=args.latex_template_dir,
@@ -207,13 +219,15 @@ def main():
             image_model_name=args.image_model_name,
             research_cutoff=args.research_cutoff,
             plotting_max_critic_rounds=args.plotting_max_critic_rounds,
+            resume=args.resume,
         )
     else:
         from methods.paper_writer import write_single_paper
 
         provided_figures_dir = os.path.join(args.raw_materials_dir, "figures")
+        mode_note = "RESUMING" if args.resume else "Starting"
         print(
-            f"🚀 Starting Paper Generation (WITHOUT PLOTTING), with figures stored in {provided_figures_dir}"
+            f"🚀 {mode_note} Paper Generation (WITHOUT PLOTTING), with figures stored in {provided_figures_dir}"
         )
         write_single_paper(
             base_dir=base_dir,
@@ -223,6 +237,7 @@ def main():
             writer_model_name=args.writer_model_name,
             reflection_model_name=args.reflection_model_name,
             research_cutoff=args.research_cutoff,
+            resume=args.resume,
         )
 
 

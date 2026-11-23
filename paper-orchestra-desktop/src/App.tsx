@@ -14,6 +14,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api";
 import { ArtifactsView } from "./components/ArtifactsView";
 import { BrandMark } from "./components/BrandMark";
+import { LibraryView } from "./components/LibraryView";
+import { ResearchStudioView } from "./components/ResearchStudioView";
 import { RunsView } from "./components/RunsView";
 import { SettingsView } from "./components/SettingsView";
 import { Sidebar } from "./components/Sidebar";
@@ -25,13 +27,16 @@ import type {
   ProjectSummary,
   RunLogEntry,
   RunRecord,
+  WorkspaceHandoff,
 } from "./types";
 
 const VIEW_LABELS: Record<NavTab, string> = {
   workspace: "工作台",
+  studio: "科研工坊",
+  library: "文献与图谱",
   runs: "运行与日志",
   artifacts: "成果与 PDF",
-  settings: "环境与密钥",
+  settings: "环境与算力",
 };
 
 const STAGE_LABELS: Record<string, string> = {
@@ -409,6 +414,52 @@ export function App() {
     }
   }
 
+  async function handleResumeRun(runId: string) {
+    await handleFlushSave();
+    try {
+      const resumed = await api.resumeRun(runId);
+      if (project) await refreshRunsForProject(project.id, resumed.id);
+      setSelectedRunId(resumed.id);
+      setLogs([]);
+      setActiveTab("runs");
+      showToast("已从最近断点恢复继续执行 (Loop Resume)");
+    } catch (e) {
+      showToast(`断点续跑失败: ${e}`, true);
+    }
+  }
+
+  async function handleApplyHandoff(handoff: WorkspaceHandoff) {
+    await handleFlushSave();
+    const templates = envStatus?.templates ?? [];
+    const targetTpl = templates.includes(handoff.recommendedTemplate)
+      ? handoff.recommendedTemplate
+      : project?.templateName || templates[0] || "cvpr2025";
+    const targetProject =
+      project ??
+      (await api.createProject(handoff.title || "科研工坊导入课题", targetTpl));
+    const updated: Project = {
+      ...targetProject,
+      title: handoff.title || targetProject.title,
+      templateName: targetTpl,
+      ideaMarkdown: handoff.ideaMarkdown || targetProject.ideaMarkdown,
+      experimentalLogMarkdown: handoff.experimentalLogMarkdown || targetProject.experimentalLogMarkdown,
+    };
+    const saved = await persistProject(updated);
+    for (const figPath of handoff.figurePaths || []) {
+      try {
+        const fig = await api.addProjectFigure(saved.id, figPath, "Generated in Research Studio");
+        saved.figures.push(fig);
+      } catch {
+        // Ignore duplicate or missing optional figures
+      }
+    }
+    setProject(saved);
+    setSelectedProjectId(saved.id);
+    await refreshProjects(saved.id);
+    setActiveTab("workspace");
+    showToast("已一键导入课题思路、实验记录与图表至论文工作台！");
+  }
+
   async function handleDeleteRun(runId: string) {
     if (!project) return;
     await api.deleteRun(runId);
@@ -416,8 +467,9 @@ export function App() {
     await refreshProjects(project.id);
   }
 
-  /** The settings page is global: no project title or project actions in its header. */
-  const projectHeader = project !== null && activeTab !== "settings";
+  /** Settings, Studio and Library are cross-project pages (no project title box needed). */
+  const projectHeader =
+    project !== null && activeTab !== "settings" && activeTab !== "studio" && activeTab !== "library";
 
   const runningStageLabel = activeRunForProject
     ? STAGE_LABELS[activeRunForProject.currentStage] || activeRunForProject.currentStage || "准备中"
@@ -467,7 +519,9 @@ export function App() {
                 />
               ) : (
                 <div className="topbar-title">
-                  {activeTab === "settings" ? VIEW_LABELS.settings : "论文写作工作台"}
+                  {activeTab === "settings" || activeTab === "studio" || activeTab === "library"
+                    ? VIEW_LABELS[activeTab]
+                    : "论文写作工作台"}
                 </div>
               )}
             </div>
@@ -544,8 +598,13 @@ export function App() {
         </header>
 
         <section className="view-scroll">
-          {activeTab === "settings" ? (
+          <div style={{ display: activeTab === "studio" ? undefined : "none" }}>
+            <ResearchStudioView onApplyHandoff={handleApplyHandoff} onToast={showToast} />
+          </div>
+          {activeTab === "studio" ? null : activeTab === "settings" ? (
             <SettingsView onEnvUpdated={refreshEnv} onToast={showToast} />
+          ) : activeTab === "library" ? (
+            <LibraryView activeProjectId={selectedProjectId} onToast={showToast} />
           ) : !project ? (
             <div className="card empty-state empty-state-hero">
               <div className="empty-state-mark" aria-hidden="true">
@@ -578,6 +637,7 @@ export function App() {
               onSelectRun={setSelectedRunId}
               logs={logs}
               onStopRun={handleStopRun}
+              onResumeRun={handleResumeRun}
               onDeleteRun={handleDeleteRun}
               onOpenArtifacts={(runId) => {
                 setSelectedRunId(runId);
@@ -586,7 +646,7 @@ export function App() {
               onExportLatex={handleExportLatex}
             />
           ) : (
-            <ArtifactsView run={selectedRun} onExportLatex={handleExportLatex} />
+            <ArtifactsView run={selectedRun} onExportLatex={handleExportLatex} onToast={showToast} />
           )}
         </section>
       </main>

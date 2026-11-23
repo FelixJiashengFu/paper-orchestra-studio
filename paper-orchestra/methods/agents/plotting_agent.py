@@ -16,13 +16,14 @@ import os
 import json
 import base64
 import concurrent.futures
+from datetime import datetime, timezone
 
 from utils.common_utils import load_md_file
 from utils.paper_banana_utils import (
     retrieve_few_shot_examples,
     predict_figure_content,
     style_figure_content,
-    generate_figure_visuals,
+    generate_figure_visuals_with_code,
     critique_and_revise_figure,
     generate_figure_caption,
 )
@@ -108,7 +109,7 @@ def process_single_figure(
     print(
         f"[{fig_plan.get('figure_id', 'Unknown')}] Generating initial visual with aspect ratio {aspect_ratio}..."
     )
-    base64_img = generate_figure_visuals(
+    base64_img, plot_code = generate_figure_visuals_with_code(
         task_name=task_name,
         figure_description=styled_figure_desc,
         model_name=model_name,
@@ -118,6 +119,17 @@ def process_single_figure(
 
     current_description = styled_figure_desc
     current_img = base64_img
+    current_code = plot_code or ""
+    version_snapshots = []
+    if current_img:
+        version_snapshots.append(
+            {
+                "instruction": "initial generation",
+                "base64_img": current_img,
+                "code": current_code,
+                "description": current_description,
+            }
+        )
 
     # 5. Critic Iteration
     critic_history = []
@@ -154,7 +166,7 @@ def process_single_figure(
                 f"[{fig_plan.get('figure_id', 'Unknown')}] Critic round {round_idx + 1}: Changes needed. Re-generating based on suggestions..."
             )
             current_description = revised_desc
-            new_img = generate_figure_visuals(
+            new_img, new_code = generate_figure_visuals_with_code(
                 task_name=task_name,
                 figure_description=current_description,
                 model_name=model_name,
@@ -164,6 +176,15 @@ def process_single_figure(
 
             if new_img:
                 current_img = new_img
+                current_code = new_code or ""
+                version_snapshots.append(
+                    {
+                        "instruction": f"critic round {round_idx + 1}: {suggestions[:240]}",
+                        "base64_img": current_img,
+                        "code": current_code,
+                        "description": current_description,
+                    }
+                )
         except Exception as e:
             print(
                 f"[ERROR in {fig_plan.get('figure_id', 'Unknown')} Critic Round {round_idx + 1}]: {e}"
@@ -200,7 +221,68 @@ def process_single_figure(
         "aspect_ratio": aspect_ratio,
         "critic_history": critic_history,
         "base64_img": current_img,
+        "_version_snapshots": version_snapshots,
     }
+
+
+def _write_plot_bundle(figures_dir: str, fig_id_clean: str, res: dict) -> str:
+    """Writes a versioned Plot Bundle under `figures/bundles/<fig_id_clean>/`."""
+    bundle_dir = os.path.join(figures_dir, "bundles", fig_id_clean)
+    os.makedirs(bundle_dir, exist_ok=True)
+    snapshots = res.get("_version_snapshots") or []
+    if not snapshots and res.get("base64_img"):
+        snapshots = [
+            {
+                "instruction": "initial generation",
+                "base64_img": res["base64_img"],
+                "code": "",
+                "description": res.get("description", ""),
+            }
+        ]
+    versions_meta = []
+    now_iso = datetime.now(timezone.utc).isoformat()
+    for idx, snap in enumerate(snapshots, start=1):
+        ver = f"v{idx}"
+        ver_dir = os.path.join(bundle_dir, ver)
+        os.makedirs(ver_dir, exist_ok=True)
+        img_rel = f"{ver}/image.jpg"
+        with open(os.path.join(bundle_dir, img_rel), "wb") as fh:
+            fh.write(base64.b64decode(snap["base64_img"]))
+        code_rel = None
+        if (snap.get("code") or "").strip():
+            code_rel = f"{ver}/plot.py"
+            with open(os.path.join(bundle_dir, code_rel), "w", encoding="utf-8") as fh:
+                fh.write(snap["code"])
+        desc_rel = f"{ver}/description.txt"
+        with open(os.path.join(bundle_dir, desc_rel), "w", encoding="utf-8") as fh:
+            fh.write(snap.get("description") or "")
+        meta = {
+            "version": ver,
+            "created_at": now_iso,
+            "instruction": snap.get("instruction", ""),
+            "bbox": None,
+            "image_rel": img_rel,
+            "code_rel": code_rel,
+            "description_rel": desc_rel,
+        }
+        with open(os.path.join(ver_dir, "meta.json"), "w", encoding="utf-8") as fh:
+            json.dump(meta, fh, ensure_ascii=False, indent=2)
+        versions_meta.append(meta)
+
+    active_ver = versions_meta[-1]["version"] if versions_meta else "v1"
+    manifest = {
+        "figure_id": res.get("figure_id") or fig_id_clean,
+        "title": res.get("title") or fig_id_clean,
+        "task_name": res.get("task_name") or "plot",
+        "caption": res.get("caption") or "",
+        "aspect_ratio": res.get("aspect_ratio") or "16:9",
+        "active_version": active_ver,
+        "target_rel_path": f"figures/{fig_id_clean}.jpg",
+        "versions": versions_meta,
+    }
+    with open(os.path.join(bundle_dir, "manifest.json"), "w", encoding="utf-8") as fh:
+        json.dump(manifest, fh, ensure_ascii=False, indent=2)
+    return f"figures/bundles/{fig_id_clean}"
 
 
 class PlottingAgent:
@@ -267,13 +349,17 @@ class PlottingAgent:
                             fh.write(base64.b64decode(res["base64_img"]))
                         print(f"Saved {img_path}")
                         res["image_path"] = f"figures/{fig_id_clean}.jpg"
+                        res["bundle_dir"] = _write_plot_bundle(figures_dir, fig_id_clean, res)
                     except Exception as e:
                         print(f"Failed to save image {fig_id_clean}: {e}")
 
-                if "base64_img" in res:
-                    del res["base64_img"]
+                res.pop("base64_img", None)
+                res.pop("_version_snapshots", None)
 
             with open(output_filepath, "w", encoding="utf-8") as f:
                 json.dump(results, f, indent=4)
+        else:
+            for res in results:
+                res.pop("_version_snapshots", None)
 
         return results

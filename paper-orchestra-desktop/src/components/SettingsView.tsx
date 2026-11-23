@@ -56,6 +56,7 @@ import {
   type ProviderCheckResult,
   type ScholarCheckResult,
 } from "../types";
+import { ResearchPreferencesSection, SshComputeHostsSection } from "./ComputeAndMemoryPanels";
 import "./settings.css";
 
 interface SettingsViewProps {
@@ -167,7 +168,7 @@ const ACCEPTED_PROVIDER_TYPES = [
   "google",
 ];
 
-type SectionId = "local" | "models" | "scholar" | "extra" | "smtp" | "diagnostics";
+type SectionId = "local" | "models" | "scholar" | "extra" | "smtp" | "diagnostics" | "preferences" | "compute";
 
 interface NavItem {
   id: string;
@@ -187,6 +188,8 @@ const NAV: NavItem[] = [
   { id: "extra", label: "其他环境变量", section: "extra" },
   { id: "smtp", label: "邮件通知", section: "smtp" },
   { id: "diagnostics", label: "诊断", section: "diagnostics" },
+  { id: "preferences", label: "研究偏好与记忆", section: "preferences" },
+  { id: "compute", label: "算力主机 (SSH/GPU)", section: "compute" },
 ];
 
 const SECTION_LABELS: Record<SectionId, string> = {
@@ -196,6 +199,8 @@ const SECTION_LABELS: Record<SectionId, string> = {
   extra: "其他环境变量",
   smtp: "邮件通知",
   diagnostics: "诊断",
+  preferences: "研究偏好与记忆",
+  compute: "算力主机",
 };
 
 const domId = (id: string) => `settings-${id}`;
@@ -1974,6 +1979,26 @@ export function SettingsView({ onEnvUpdated, onToast }: SettingsViewProps) {
                 )}
               </div>
             </div>
+          </Section>
+
+          {/* ---------------- g) research preferences & memory ---------------- */}
+          <Section
+            id="preferences"
+            num="07"
+            title="研究偏好与长期记忆"
+            description="配置默认输出语言、GB/T 7714 等引文格式及课题组长期记忆，自动注入论文流水线与科研 SOP。"
+          >
+            <ResearchPreferencesSection onToast={onToast} />
+          </Section>
+
+          {/* ---------------- h) remote SSH / GPU compute hosts ---------------- */}
+          <Section
+            id="compute"
+            num="08"
+            title="远程算力主机 (SSH / GPU)"
+            description="登记课题组服务器或 AutoDL 等云端 GPU 实例，测试连接并实时查看显卡状态、执行训练脚本与拉取结果。"
+          >
+            <SshComputeHostsSection onToast={onToast} />
           </Section>
 
           {/* ---------------- save bar ---------------- */}

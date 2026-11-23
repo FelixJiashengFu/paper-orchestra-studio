@@ -1051,15 +1051,26 @@ def critique_and_revise_figure(
     return revised_description, critic_suggestions
 
 
-def generate_figure_visuals(
+def _clean_python_code(code_text: str) -> str:
+    match = re.search(r"```python(.*?)```", code_text or "", re.DOTALL)
+    if match:
+        return match.group(1).strip()
+    match_generic = re.search(r"```(.*?)```", code_text or "", re.DOTALL)
+    if match_generic:
+        return match_generic.group(1).strip()
+    return (code_text or "").strip()
+
+
+def generate_figure_visuals_with_code(
     task_name: str,
     figure_description: str,
     model_name: str = "gemini-3.1-pro-preview",
     image_model_name: str = "gemini-3-pro-image",
     aspect_ratio: str = "16:9",
-) -> str:
+) -> Tuple[str, str]:
     """
-    Generates the figure based on the task type.
+    Generates the figure based on the task type and returns (base64_img, python_code).
+    `python_code` is empty when a raster image model generated the diagram.
     """
     code_model = resolve_task_model(model_name, "plot_code")
     image_model_name = resolve_image_model(image_model_name)
@@ -1071,9 +1082,9 @@ def generate_figure_visuals(
             generation_configs={"system_instruction": PLOT_VISUALIZER_AGENT_SYSTEM_PROMPT},
             result_parsing_func=identity_parse,
         )
-        code_text = response_dict["parsed_response"]
+        code_text = _clean_python_code(response_dict["parsed_response"])
         base64_img = execute_plot_code_worker(code_text)
-        return base64_img
+        return base64_img, code_text
     else:
         # Prompt for diagram image generation
         if can_generate_images(image_model_name):
@@ -1085,7 +1096,7 @@ def generate_figure_visuals(
                 system_instruction=DIAGRAM_VISUALIZER_AGENT_SYSTEM_PROMPT,
             )
             if img_b64:
-                return img_b64
+                return img_b64, ""
             print(" >> [Plotting] Image model returned nothing; falling back to Matplotlib.")
 
         print(
@@ -1100,4 +1111,25 @@ def generate_figure_visuals(
             generation_configs={"system_instruction": PLOT_VISUALIZER_AGENT_SYSTEM_PROMPT},
             result_parsing_func=identity_parse,
         )
-        return execute_plot_code_worker(response_dict["parsed_response"])
+        code_text = _clean_python_code(response_dict["parsed_response"])
+        return execute_plot_code_worker(code_text), code_text
+
+
+def generate_figure_visuals(
+    task_name: str,
+    figure_description: str,
+    model_name: str = "gemini-3.1-pro-preview",
+    image_model_name: str = "gemini-3-pro-image",
+    aspect_ratio: str = "16:9",
+) -> str:
+    """
+    Generates the figure based on the task type.
+    """
+    base64_img, _ = generate_figure_visuals_with_code(
+        task_name=task_name,
+        figure_description=figure_description,
+        model_name=model_name,
+        image_model_name=image_model_name,
+        aspect_ratio=aspect_ratio,
+    )
+    return base64_img

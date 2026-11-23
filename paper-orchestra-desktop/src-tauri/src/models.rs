@@ -278,3 +278,191 @@ pub struct LatexExportBib {
     /// Library entries left out (none of them is cited).
     pub dropped: usize,
 }
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct LibraryClaim {
+    pub claim: String,
+    pub evidence: String,
+    pub location: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct LibraryItem {
+    pub id: String,
+    pub project_id: Option<String>,
+    pub folder: String,
+    pub title: String,
+    pub authors: String,
+    pub year: Option<i64>,
+    pub venue: String,
+    pub doi: String,
+    pub arxiv_id: String,
+    pub url: String,
+    pub pdf_path: String,
+    pub bibtex: String,
+    pub gb7714: String,
+    pub abstract_text: String,
+    pub ai_notes: String,
+    pub key_claims: Vec<LibraryClaim>,
+    pub tags: Vec<String>,
+    pub read_status: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SaveLibraryItemInput {
+    pub id: Option<String>,
+    pub project_id: Option<String>,
+    pub folder: String,
+    pub title: String,
+    pub authors: String,
+    pub year: Option<i64>,
+    pub venue: String,
+    pub doi: String,
+    pub arxiv_id: String,
+    pub url: String,
+    pub pdf_path: String,
+    pub bibtex: String,
+    pub gb7714: String,
+    pub abstract_text: String,
+    pub ai_notes: String,
+    pub key_claims: Vec<LibraryClaim>,
+    pub tags: Vec<String>,
+    pub read_status: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ResearchMemory {
+    pub id: String,
+    pub category: String,
+    pub title: String,
+    pub content: String,
+    pub enabled: bool,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SaveResearchMemoryInput {
+    pub id: Option<String>,
+    pub category: String,
+    pub title: String,
+    pub content: String,
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ResearchPreferences {
+    pub output_language: String,
+    pub citation_style: String,
+    pub delivery_format: String,
+    pub custom_rules: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SshHost {
+    pub id: String,
+    pub alias: String,
+    pub host: String,
+    pub port: i64,
+    pub username: String,
+    pub auth_type: String,
+    pub key_path: String,
+    pub remote_work_dir: String,
+    pub notes: String,
+    pub last_status: String,
+    pub last_gpu_info: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SaveSshHostInput {
+    pub id: Option<String>,
+    pub alias: String,
+    pub host: String,
+    pub port: i64,
+    pub username: String,
+    pub auth_type: String,
+    pub key_path: String,
+    pub private_key_pem: Option<String>,
+    pub remote_work_dir: String,
+    pub notes: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SshGpuInfo {
+    pub name: String,
+    pub utilization_pct: f64,
+    pub mem_used_mb: f64,
+    pub mem_total_mb: f64,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SshTestResult {
+    pub ok: bool,
+    pub system_info: String,
+    pub gpus: Vec<SshGpuInfo>,
+    pub raw_output: String,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SshExecResult {
+    pub ok: bool,
+    pub exit_code: Option<i32>,
+    pub stdout: String,
+    pub stderr: String,
+    pub duration_ms: u64,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SkillEntry {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub category: String,
+    pub content: String,
+    pub builtin: bool,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SaveSkillInput {
+    pub id: Option<String>,
+    pub name: String,
+    pub description: String,
+    pub category: String,
+    pub content: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StudioEventPayload {
+    pub job_id: String,
+    pub kind: String,
+    pub stage: Option<String>,
+    pub status: Option<String>,
+    pub message: Option<String>,
+    pub model: Option<String>,
+    pub detail: Option<String>,
+    pub est_input_tokens: Option<u64>,
+    pub out_dir: Option<String>,
+    pub usage: Option<serde_json::Value>,
+    pub line: Option<String>,
+    pub level: Option<String>,
+    pub timestamp: String,
+}

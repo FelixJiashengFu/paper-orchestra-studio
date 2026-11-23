@@ -8,6 +8,8 @@ mod live_edit;
 mod models;
 mod providers;
 mod runner;
+mod skills_store;
+mod ssh_hosts;
 
 use std::sync::Mutex;
 use tauri::Manager;
@@ -33,6 +35,7 @@ pub fn run() {
                 db_path: db_path.to_string_lossy().to_string(),
             });
             app.manage(ActiveRunsState::new());
+            app.manage(diagnostics::ActiveStudioJobsState::new());
             app.manage(live_edit::LiveCompileState::default());
             Ok(())
         })
@@ -74,6 +77,37 @@ pub fn run() {
             commands::live_edit_compile,
             commands::live_edit_sync_view,
             commands::live_edit_sync_edit,
+            commands::resume_run,
+            commands::cancel_studio_job,
+            commands::run_figure_studio,
+            commands::run_data_profile,
+            commands::run_data_analysis,
+            commands::run_sop_workflow,
+            commands::run_custom_skill,
+            commands::list_library_items,
+            commands::save_library_item,
+            commands::delete_library_item,
+            commands::run_library_tool,
+            commands::run_latex_copilot,
+            commands::list_research_memories,
+            commands::save_research_memory,
+            commands::delete_research_memory,
+            commands::get_research_preferences,
+            commands::save_research_preferences,
+            commands::list_ssh_hosts,
+            commands::save_ssh_host,
+            commands::delete_ssh_host,
+            commands::test_ssh_host,
+            commands::exec_ssh_command,
+            commands::scp_transfer,
+            commands::list_skills,
+            commands::save_skill,
+            commands::delete_skill,
+            commands::import_skill_from_file,
+            commands::import_skill_from_url,
+            commands::get_export_environment,
+            commands::export_markdown_document,
+            commands::export_markdown_to_google_drive,
         ])
         .run(tauri::generate_context!())
         .expect("error while running PaperOrchestra Studio");

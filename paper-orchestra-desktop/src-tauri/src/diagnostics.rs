@@ -9,16 +9,20 @@
 //! defence (known secret values from .env / providers.json, plus anything
 //! that looks like an API key).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 use std::process::Stdio;
 use std::time::Duration;
 
+use chrono::Utc;
 use serde_json::{Map, Value};
-use tokio::io::AsyncReadExt;
+use tauri::{AppHandle, Emitter};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 use tokio::process::Command;
+use tokio::sync::{oneshot, Mutex};
 
 use crate::env_config::enriched_path_env;
+use crate::models::StudioEventPayload;
 
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -240,9 +244,15 @@ pub fn parse_intake_output(stdout: &str, stderr: &str) -> Result<Value, String> 
 }
 
 /// tools/submission_tools.py (arXiv pack, blind-review check, LaTeX
-/// diagnostics, latexdiff, online citation check). Adapted from Lattice
+/// diagnostics, latexdiff, online citation check, lean-audit). Adapted from Lattice
 /// (Apache-2.0); see paper-orchestra/THIRD_PARTY_NOTICES.md.
 pub const SUBMISSION_SCRIPT: &str = "tools/submission_tools.py";
+pub const FIGURE_STUDIO_SCRIPT: &str = "tools/figure_studio.py";
+pub const RESEARCH_STUDIO_SCRIPT: &str = "tools/research_studio.py";
+pub const LIBRARY_TOOLS_SCRIPT: &str = "tools/library_tools.py";
+pub const LATEX_COPILOT_SCRIPT: &str = "tools/latex_copilot.py";
+pub const DOC_EXPORTER_SCRIPT: &str = "tools/doc_exporter.py";
+
 /// Subcommands the app may run.
 pub const SUBMISSION_COMMANDS: &[&str] = &[
     "arxiv",
@@ -252,6 +262,7 @@ pub const SUBMISSION_COMMANDS: &[&str] = &[
     "diff",
     "cite-online",
     "manuscript-audit",
+    "lean-audit",
 ];
 /// Flags the app may pass; every other argument must be an absolute path.
 const SUBMISSION_FLAGS: &[&str] = &[
@@ -261,6 +272,447 @@ const SUBMISSION_FLAGS: &[&str] = &[
     "--find-packages",
     "--only-changed-pages",
 ];
+
+fn validate_flagged_tool_args(
+    args: &[String],
+    what: &str,
+    cmds: &[&str],
+    bool_flags: &[&str],
+    path_flags: &[&str],
+    value_flags: &[&str],
+) -> Result<(), String> {
+    let Some(cmd) = args.first() else {
+        return Err(format!("缺少{what}的子命令。"));
+    };
+    if !cmds.contains(&cmd.as_str()) {
+        return Err(format!("未知的{what}子命令：{cmd}"));
+    }
+    let mut i = 1;
+    while i < args.len() {
+        let flag = args[i].as_str();
+        if bool_flags.contains(&flag) {
+            i += 1;
+        } else if path_flags.contains(&flag) {
+            let val = args
+                .get(i + 1)
+                .ok_or_else(|| format!("{what}参数 {flag} 缺少路径值。"))?;
+            if !val.trim().is_empty() && !Path::new(val).is_absolute() {
+                return Err(format!("{what}路径 {flag} 必须是绝对路径：{val}"));
+            }
+            i += 2;
+        } else if value_flags.contains(&flag) {
+            if i + 1 >= args.len() {
+                return Err(format!("{what}参数 {flag} 缺少值。"));
+            }
+            i += 2;
+        } else {
+            return Err(format!("不支持的{what}参数：{flag}"));
+        }
+    }
+    Ok(())
+}
+
+pub fn validate_figure_studio_args(args: &[String]) -> Result<(), String> {
+    validate_flagged_tool_args(
+        args,
+        "绘图工坊",
+        &["list", "ensure-bundle", "revise", "restore", "create"],
+        &[],
+        &["--dir", "--bundle", "--base-dir", "--out-dir", "--image", "--code-file", "--data-file", "--ref-image"],
+        &["--title", "--description", "--instruction", "--bbox", "--model", "--image-model", "--version", "--mode", "--prompt"],
+    )
+}
+
+pub fn validate_research_studio_args(args: &[String]) -> Result<(), String> {
+    validate_flagged_tool_args(
+        args,
+        "科研工坊",
+        &["data-profile", "run-data-analysis", "run-sop", "run-skill", "fetch-skill-url"],
+        &[],
+        &["--file", "--out-dir", "--input-json", "--skill-file", "--files-json", "--prefs-file"],
+        &["--question", "--model", "--sop", "--prompt", "--url"],
+    )
+}
+
+pub fn validate_library_tool_args(args: &[String]) -> Result<(), String> {
+    validate_flagged_tool_args(
+        args,
+        "文献库工具",
+        &["search-online", "import-pdf", "import-doi", "build-graph", "export-bib"],
+        &["--expand", "--no-llm"],
+        &["--pdf", "--input-json"],
+        &["--query", "--limit", "--model", "--doi", "--format"],
+    )
+}
+
+pub fn validate_latex_copilot_args(args: &[String]) -> Result<(), String> {
+    validate_flagged_tool_args(
+        args,
+        "LaTeX 助手",
+        &["edit", "trace-citations"],
+        &[],
+        &["--file", "--run-dir", "--tex-file"],
+        &["--instruction", "--selection-start", "--selection-end", "--error-log", "--model"],
+    )
+}
+
+pub fn validate_doc_exporter_args(args: &[String]) -> Result<(), String> {
+    validate_flagged_tool_args(
+        args,
+        "文档导出",
+        &["google-drive-status", "export", "export-google-drive"],
+        &[],
+        &["--input-md", "--out", "--drive-dir"],
+        &["--format", "--title"],
+    )
+}
+
+/// Runs a repo Python CLI (`script_rel`) safely, masks secrets in error output,
+/// and parses its final stdout JSON object.
+pub async fn run_json_cli(
+    python: &str,
+    repo: &Path,
+    script_rel: &str,
+    what: &str,
+    args: &[String],
+    timeout: Duration,
+    secrets: &[String],
+) -> Result<Value, String> {
+    let argv: Vec<&str> = args.iter().map(String::as_str).collect();
+    let out = run_repo_script(
+        python,
+        repo,
+        script_rel,
+        what,
+        &argv,
+        timeout,
+        what,
+        "请检查模型密钥、网络连接或输入参数后重试。",
+    )
+    .await?;
+    let mut val = parse_tool_output(&out.stdout, &out.stderr, what)?;
+    mask_strings(&mut val, secrets);
+    Ok(val)
+}
+
+pub const STUDIO_EVENT_PREFIX: &str = "@@PO_STUDIO_EVENT ";
+
+pub struct ActiveStudioJobsState {
+    pub jobs: Mutex<HashMap<String, oneshot::Sender<()>>>,
+}
+
+impl ActiveStudioJobsState {
+    pub fn new() -> Self {
+        Self {
+            jobs: Mutex::new(HashMap::new()),
+        }
+    }
+
+    pub async fn cancel(&self, job_id: &str) -> bool {
+        let tx = {
+            let mut guard = self.jobs.lock().await;
+            guard.remove(job_id)
+        };
+        if let Some(tx) = tx {
+            let _ = tx.send(());
+            true
+        } else {
+            false
+        }
+    }
+}
+
+pub fn parse_studio_stderr_line(
+    job_id: &str,
+    line: &str,
+    secrets: &[String],
+) -> Option<StudioEventPayload> {
+    let trimmed = line.trim_end_matches(&['\r', '\n'][..]);
+    if let Some(raw_json) = trimmed.strip_prefix(STUDIO_EVENT_PREFIX) {
+        if let Ok(mut val) = serde_json::from_str::<Value>(raw_json) {
+            mask_strings(&mut val, secrets);
+            let kind = val
+                .get("kind")
+                .and_then(Value::as_str)
+                .unwrap_or("log")
+                .to_string();
+            let timestamp = val
+                .get("timestamp")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+                .unwrap_or_else(|| Utc::now().to_rfc3339());
+            return Some(StudioEventPayload {
+                job_id: job_id.to_string(),
+                kind,
+                stage: val.get("stage").and_then(Value::as_str).map(str::to_string),
+                status: val.get("status").and_then(Value::as_str).map(str::to_string),
+                message: val
+                    .get("message")
+                    .and_then(Value::as_str)
+                    .map(|s| mask_secrets(s, secrets)),
+                model: val.get("model").and_then(Value::as_str).map(str::to_string),
+                detail: val
+                    .get("detail")
+                    .and_then(Value::as_str)
+                    .map(|s| mask_secrets(s, secrets)),
+                est_input_tokens: val.get("estInputTokens").and_then(Value::as_u64),
+                out_dir: val.get("outDir").and_then(Value::as_str).map(str::to_string),
+                usage: val.get("usage").cloned(),
+                line: val
+                    .get("line")
+                    .and_then(Value::as_str)
+                    .map(|s| mask_log_line(s, secrets)),
+                level: val.get("level").and_then(Value::as_str).map(str::to_string),
+                timestamp,
+            });
+        }
+    }
+    if trimmed.trim().is_empty() {
+        return None;
+    }
+    let masked = mask_log_line(trimmed, secrets);
+    let low = masked.to_lowercase();
+    let level = if low.contains("traceback")
+        || low.contains("error")
+        || low.contains("exception")
+        || low.contains("失败")
+    {
+        "error"
+    } else if low.contains("warn") || low.contains("retry") || low.contains("重试") {
+        "warn"
+    } else {
+        "info"
+    };
+    Some(StudioEventPayload {
+        job_id: job_id.to_string(),
+        kind: "log".to_string(),
+        stage: None,
+        status: None,
+        message: None,
+        model: None,
+        detail: None,
+        est_input_tokens: None,
+        out_dir: None,
+        usage: None,
+        line: Some(masked),
+        level: Some(level.to_string()),
+        timestamp: Utc::now().to_rfc3339(),
+    })
+}
+
+fn emit_studio_event(app: &AppHandle, payload: StudioEventPayload) {
+    let _ = app.emit("studio-event", payload);
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn run_streaming_json_cli(
+    app: &AppHandle,
+    jobs: &ActiveStudioJobsState,
+    job_id: &str,
+    out_dir_hint: Option<&str>,
+    python: &str,
+    repo: &Path,
+    script_rel: &str,
+    what: &str,
+    args: &[String],
+    timeout: Duration,
+    secrets: &[String],
+) -> Result<Value, String> {
+    let python = python.trim();
+    if python.is_empty() {
+        return Err("尚未设置 Python 路径，请先在「本地环境」中填写并保存。".to_string());
+    }
+    if !repo.is_dir() {
+        return Err(format!(
+            "PaperOrchestra 目录不存在：{}。请在「本地环境」中检查目录设置。",
+            repo.display()
+        ));
+    }
+    let script = script_rel
+        .split('/')
+        .fold(repo.to_path_buf(), |p, part| p.join(part));
+    if !script.is_file() {
+        return Err(format!(
+            "未找到{what} {script_rel}（{}）。请确认「PaperOrchestra 目录」指向包含该脚本的最新版本。",
+            repo.display()
+        ));
+    }
+
+    let mut cmd = Command::new(python);
+    cmd.arg(&script)
+        .args(args)
+        .current_dir(repo)
+        .env("PYTHONUNBUFFERED", "1")
+        .env("PYTHONUTF8", "1")
+        .env("PYTHONIOENCODING", "utf-8")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
+    let path_env = enriched_path_env();
+    if !path_env.is_empty() {
+        cmd.env("PATH", path_env);
+    }
+    #[cfg(target_os = "windows")]
+    {
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    let mut child = cmd.spawn().map_err(|e| {
+        format!("无法启动 Python（{python}）：{e}。请在「本地环境」中检查 Python 路径。")
+    })?;
+    let mut stdout = child.stdout.take();
+    let stderr = child.stderr.take();
+
+    let (cancel_tx, cancel_rx) = oneshot::channel::<()>();
+    {
+        let mut guard = jobs.jobs.lock().await;
+        guard.insert(job_id.to_string(), cancel_tx);
+    }
+
+    emit_studio_event(
+        app,
+        StudioEventPayload {
+            job_id: job_id.to_string(),
+            kind: "started".to_string(),
+            stage: Some("init".to_string()),
+            status: Some("running".to_string()),
+            message: Some(format!("已启动{what}…")),
+            out_dir: out_dir_hint.map(str::to_string),
+            timestamp: Utc::now().to_rfc3339(),
+            ..Default::default()
+        },
+    );
+
+    let read_out = async {
+        let mut buf = Vec::new();
+        if let Some(s) = stdout.as_mut() {
+            let _ = s.read_to_end(&mut buf).await;
+        }
+        String::from_utf8_lossy(&buf).into_owned()
+    };
+
+    let read_err = async {
+        let mut acc = String::new();
+        if let Some(err_pipe) = stderr {
+            let mut reader = BufReader::new(err_pipe).lines();
+            while let Ok(Some(line)) = reader.next_line().await {
+                if let Some(ev) = parse_studio_stderr_line(job_id, &line, secrets) {
+                    emit_studio_event(app, ev);
+                }
+                acc.push_str(&line);
+                acc.push('\n');
+            }
+        }
+        acc
+    };
+
+    let run_fut = async {
+        let (out_str, err_str, wait_res) = tokio::join!(read_out, read_err, child.wait());
+        (out_str, err_str, wait_res)
+    };
+
+    enum Outcome {
+        Cancelled,
+        TimedOut,
+        Finished(String, String, Result<std::process::ExitStatus, std::io::Error>),
+    }
+
+    let outcome = tokio::select! {
+        biased;
+        _ = cancel_rx => {
+            let _ = child.kill().await;
+            let _ = child.wait().await;
+            Outcome::Cancelled
+        }
+        res = tokio::time::timeout(timeout, run_fut) => {
+            match res {
+                Ok((out_str, err_str, wait_res)) => Outcome::Finished(out_str, err_str, wait_res),
+                Err(_) => {
+                    let _ = child.kill().await;
+                    let _ = child.wait().await;
+                    Outcome::TimedOut
+                }
+            }
+        }
+    };
+
+    {
+        let mut guard = jobs.jobs.lock().await;
+        guard.remove(job_id);
+    }
+
+    match outcome {
+        Outcome::Cancelled => {
+            let msg = "已手动停止该工坊任务。".to_string();
+            emit_studio_event(
+                app,
+                StudioEventPayload {
+                    job_id: job_id.to_string(),
+                    kind: "cancelled".to_string(),
+                    status: Some("cancelled".to_string()),
+                    message: Some(msg.clone()),
+                    timestamp: Utc::now().to_rfc3339(),
+                    ..Default::default()
+                },
+            );
+            Err(msg)
+        }
+        Outcome::TimedOut => {
+            let msg = format!(
+                "{what}超时（超过 {} 秒），已终止进程。请检查模型密钥、网络连接或输入参数后重试。",
+                timeout.as_secs()
+            );
+            emit_studio_event(
+                app,
+                StudioEventPayload {
+                    job_id: job_id.to_string(),
+                    kind: "error".to_string(),
+                    status: Some("error".to_string()),
+                    message: Some(msg.clone()),
+                    timestamp: Utc::now().to_rfc3339(),
+                    ..Default::default()
+                },
+            );
+            Err(msg)
+        }
+        Outcome::Finished(out_str, err_str, wait_res) => {
+            let _status = wait_res.map_err(|e| format!("等待{what}进程结束失败：{e}"))?;
+            match parse_tool_output(&out_str, &err_str, what) {
+                Ok(mut val) => {
+                    mask_strings(&mut val, secrets);
+                    emit_studio_event(
+                        app,
+                        StudioEventPayload {
+                            job_id: job_id.to_string(),
+                            kind: "done".to_string(),
+                            status: Some("completed".to_string()),
+                            message: Some(format!("{what}执行完成")),
+                            timestamp: Utc::now().to_rfc3339(),
+                            ..Default::default()
+                        },
+                    );
+                    Ok(val)
+                }
+                Err(e) => {
+                    let masked = mask_secrets(&e, secrets);
+                    emit_studio_event(
+                        app,
+                        StudioEventPayload {
+                            job_id: job_id.to_string(),
+                            kind: "error".to_string(),
+                            status: Some("error".to_string()),
+                            message: Some(masked.clone()),
+                            timestamp: Utc::now().to_rfc3339(),
+                            ..Default::default()
+                        },
+                    );
+                    Err(masked)
+                }
+            }
+        }
+    }
+}
 
 /// Checks a submission-tool call: a known subcommand, known flags, and
 /// absolute paths for everything else (no option injection through a path).
@@ -515,11 +967,19 @@ mod tests {
         let (run, out) = if cfg!(windows) { (r"C:\runs\a", r"C:\tmp\x.zip") } else { ("/runs/a", "/tmp/x.zip") };
         assert!(ok(&["blind", run]).is_ok());
         assert!(ok(&["manuscript-audit", run]).is_ok());
+        assert!(ok(&["lean-audit", run]).is_ok());
         assert!(ok(&["arxiv", run, "--out", out, "--merge-inputs"]).is_ok());
         assert!(ok(&["rm", "/x"]).is_err());
         assert!(ok(&["blind", "--evil"]).is_err());
         assert!(ok(&["blind", "relative/path"]).is_err());
         assert!(ok(&[]).is_err());
+
+        let str_vec = |xs: &[&str]| xs.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert!(validate_figure_studio_args(&str_vec(&["revise", "--bundle", run, "--instruction", "move legend", "--bbox", "0.1,0.2,0.3,0.4"])).is_ok());
+        assert!(validate_figure_studio_args(&str_vec(&["revise", "--bundle", "rel/path", "--instruction", "x"])).is_err());
+        assert!(validate_research_studio_args(&str_vec(&["data-profile", "--file", run])).is_ok());
+        assert!(validate_library_tool_args(&str_vec(&["search-online", "--query", "attention", "--expand"])).is_ok());
+        assert!(validate_latex_copilot_args(&str_vec(&["trace-citations", "--run-dir", run])).is_ok());
     }
 
     #[test]
@@ -858,5 +1318,72 @@ printf '{"providers":[],"scholar":[],"argv":"%s","cwd":"%s","utf8":"%s"}\n' "$*"
         tokio::time::sleep(Duration::from_millis(3500)).await;
         assert!(!marker.exists(), "process was not killed");
         let _ = std::fs::remove_dir_all(&repo);
+    }
+
+    #[test]
+    fn parses_studio_progress_usage_and_masks_secrets() {
+        let secret = "sk-secret-value-1234567890abcd";
+        let secrets = vec![secret.to_string()];
+
+        let prog_line = format!(
+            "{STUDIO_EVENT_PREFIX}{{\"kind\":\"progress\",\"stage\":\"codegen\",\"status\":\"running\",\"message\":\"Using key {secret}\",\"model\":\"gpt-4o\",\"estInputTokens\":1234}}"
+        );
+        let ev = parse_studio_stderr_line("job1", &prog_line, &secrets).unwrap();
+        assert_eq!(ev.job_id, "job1");
+        assert_eq!(ev.kind, "progress");
+        assert_eq!(ev.stage.as_deref(), Some("codegen"));
+        assert_eq!(ev.model.as_deref(), Some("gpt-4o"));
+        assert_eq!(ev.est_input_tokens, Some(1234));
+        assert!(!ev.message.as_deref().unwrap().contains(secret));
+
+        let usage_line = format!(
+            "{STUDIO_EVENT_PREFIX}{{\"kind\":\"usage\",\"usage\":{{\"totals\":{{\"calls\":2,\"errors\":0,\"input_tokens\":500,\"output_tokens\":200}},\"by_model\":[]}}}}"
+        );
+        let uev = parse_studio_stderr_line("job1", &usage_line, &secrets).unwrap();
+        assert_eq!(uev.kind, "usage");
+        assert_eq!(uev.usage.as_ref().unwrap()["totals"]["calls"], 2);
+
+        let raw_line = format!("Warning: leak {secret} on retry");
+        let lev = parse_studio_stderr_line("job1", &raw_line, &secrets).unwrap();
+        assert_eq!(lev.kind, "log");
+        assert_eq!(lev.level.as_deref(), Some("warn"));
+        assert!(!lev.line.as_deref().unwrap().contains(secret));
+    }
+
+    #[tokio::test]
+    async fn studio_jobs_state_cancel_removes_and_signals() {
+        let state = ActiveStudioJobsState::new();
+        let (tx, rx) = oneshot::channel::<()>();
+        {
+            let mut g = state.jobs.lock().await;
+            g.insert("job-xyz".to_string(), tx);
+        }
+        assert!(state.cancel("job-xyz").await);
+        assert!(rx.await.is_ok());
+        assert!(!state.cancel("job-xyz").await);
+    }
+
+    #[test]
+    fn doc_exporter_args_are_allowlisted() {
+        assert!(validate_doc_exporter_args(&["google-drive-status".into()]).is_ok());
+        assert!(validate_doc_exporter_args(&[
+            "export".into(),
+            "--input-md".into(),
+            "/abs/in.md".into(),
+            "--format".into(),
+            "docx".into(),
+            "--out".into(),
+            "/abs/out.docx".into(),
+            "--title".into(),
+            "报告".into(),
+        ])
+        .is_ok());
+        assert!(validate_doc_exporter_args(&[
+            "export".into(),
+            "--input-md".into(),
+            "relative.md".into(),
+        ])
+        .is_err());
+        assert!(validate_doc_exporter_args(&["unknown".into()]).is_err());
     }
 }

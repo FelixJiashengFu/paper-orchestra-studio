@@ -10,8 +10,10 @@ use crate::env_config::{
     default_output_root_dir, default_paper_orchestra_dir, default_python_path, expand_home,
 };
 use crate::models::{
-    AddProjectFigureInput, AppSettings, Project, ProjectFigure, ProjectSummary, RunLogEntry,
-    RunRecord, SaveProjectInput, UpdateAppSettingsInput,
+    AddProjectFigureInput, AppSettings, LibraryClaim, LibraryItem, Project, ProjectFigure,
+    ProjectSummary, ResearchMemory, ResearchPreferences, RunLogEntry, RunRecord,
+    SaveLibraryItemInput, SaveProjectInput, SaveResearchMemoryInput, SaveSshHostInput, SshHost,
+    UpdateAppSettingsInput,
 };
 
 pub struct DbState {
@@ -96,9 +98,58 @@ pub fn init_db(db_path: &Path) -> Result<Connection, String> {
             created_at TEXT NOT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS library_items (
+            id TEXT PRIMARY KEY,
+            project_id TEXT,
+            folder TEXT NOT NULL DEFAULT '默认文献夹',
+            title TEXT NOT NULL,
+            authors TEXT NOT NULL DEFAULT '',
+            year INTEGER,
+            venue TEXT NOT NULL DEFAULT '',
+            doi TEXT NOT NULL DEFAULT '',
+            arxiv_id TEXT NOT NULL DEFAULT '',
+            url TEXT NOT NULL DEFAULT '',
+            pdf_path TEXT NOT NULL DEFAULT '',
+            bibtex TEXT NOT NULL DEFAULT '',
+            gb7714 TEXT NOT NULL DEFAULT '',
+            abstract_text TEXT NOT NULL DEFAULT '',
+            ai_notes TEXT NOT NULL DEFAULT '',
+            key_claims_json TEXT NOT NULL DEFAULT '[]',
+            tags_json TEXT NOT NULL DEFAULT '[]',
+            read_status TEXT NOT NULL DEFAULT 'unread',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS research_memories (
+            id TEXT PRIMARY KEY,
+            category TEXT NOT NULL DEFAULT 'direction',
+            title TEXT NOT NULL,
+            content TEXT NOT NULL,
+            enabled INTEGER NOT NULL DEFAULT 1,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS ssh_hosts (
+            id TEXT PRIMARY KEY,
+            alias TEXT NOT NULL,
+            host TEXT NOT NULL,
+            port INTEGER NOT NULL DEFAULT 22,
+            username TEXT NOT NULL DEFAULT 'root',
+            auth_type TEXT NOT NULL DEFAULT 'key_path',
+            key_path TEXT NOT NULL DEFAULT '',
+            remote_work_dir TEXT NOT NULL DEFAULT '~',
+            notes TEXT NOT NULL DEFAULT '',
+            last_status TEXT NOT NULL DEFAULT '',
+            last_gpu_info TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
         CREATE INDEX IF NOT EXISTS idx_project_figures_project_id ON project_figures(project_id, sort_order);
         CREATE INDEX IF NOT EXISTS idx_runs_project_id ON runs(project_id, started_at DESC);
         CREATE INDEX IF NOT EXISTS idx_run_logs_run_id ON run_logs(run_id, id);
+        CREATE INDEX IF NOT EXISTS idx_library_items_updated ON library_items(updated_at DESC);
         ",
     )
     .map_err(|e| format!("Failed to initialize SQLite schema: {e}"))?;
@@ -833,6 +884,359 @@ pub fn get_run_logs(
     Ok(out)
 }
 
+pub fn resume_run_record(conn: &Connection, run_id: &str) -> Result<RunRecord, String> {
+    conn.execute(
+        "UPDATE runs
+         SET status = 'running',
+             finished_at = NULL,
+             exit_code = NULL,
+             error_message = NULL
+         WHERE id = ?1",
+        params![run_id],
+    )
+    .map_err(|e| format!("Failed to reset run for resume: {e}"))?;
+    get_run(conn, run_id)
+}
+
+pub fn list_library_items(conn: &Connection) -> Result<Vec<LibraryItem>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, project_id, folder, title, authors, year, venue, doi, arxiv_id, url,
+                    pdf_path, bibtex, gb7714, abstract_text, ai_notes, key_claims_json, tags_json,
+                    read_status, created_at, updated_at
+             FROM library_items
+             ORDER BY updated_at DESC",
+        )
+        .map_err(|e| format!("Failed to prepare list_library_items: {e}"))?;
+
+    let rows = stmt
+        .query_map([], |r| {
+            let claims_raw: String = r.get(15)?;
+            let tags_raw: String = r.get(16)?;
+            Ok(LibraryItem {
+                id: r.get(0)?,
+                project_id: r.get(1)?,
+                folder: r.get(2)?,
+                title: r.get(3)?,
+                authors: r.get(4)?,
+                year: r.get(5)?,
+                venue: r.get(6)?,
+                doi: r.get(7)?,
+                arxiv_id: r.get(8)?,
+                url: r.get(9)?,
+                pdf_path: r.get(10)?,
+                bibtex: r.get(11)?,
+                gb7714: r.get(12)?,
+                abstract_text: r.get(13)?,
+                ai_notes: r.get(14)?,
+                key_claims: serde_json::from_str::<Vec<LibraryClaim>>(&claims_raw).unwrap_or_default(),
+                tags: serde_json::from_str::<Vec<String>>(&tags_raw).unwrap_or_default(),
+                read_status: r.get(17)?,
+                created_at: r.get(18)?,
+                updated_at: r.get(19)?,
+            })
+        })
+        .map_err(|e| format!("Failed to query library_items: {e}"))?;
+
+    let mut out = Vec::new();
+    for item in rows {
+        out.push(item.map_err(|e| format!("Failed to read library row: {e}"))?);
+    }
+    Ok(out)
+}
+
+pub fn save_library_item(conn: &Connection, input: &SaveLibraryItemInput) -> Result<LibraryItem, String> {
+    let title = input.title.trim();
+    if title.is_empty() {
+        return Err("文献标题不能为空。".to_string());
+    }
+    let now = now_iso();
+    let id = input
+        .id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| Uuid::new_v4().to_string());
+    let created_at: String = conn
+        .query_row("SELECT created_at FROM library_items WHERE id = ?1", params![id], |r| r.get(0))
+        .optional()
+        .map_err(|e| format!("Failed to check library_item: {e}"))?
+        .unwrap_or_else(|| now.clone());
+
+    let folder = if input.folder.trim().is_empty() {
+        "默认文献夹"
+    } else {
+        input.folder.trim()
+    };
+    let read_status = if input.read_status.trim().is_empty() {
+        "unread"
+    } else {
+        input.read_status.trim()
+    };
+    let claims_json = serde_json::to_string(&input.key_claims).unwrap_or_else(|_| "[]".to_string());
+    let tags_json = serde_json::to_string(&input.tags).unwrap_or_else(|_| "[]".to_string());
+
+    conn.execute(
+        "INSERT OR REPLACE INTO library_items
+            (id, project_id, folder, title, authors, year, venue, doi, arxiv_id, url,
+             pdf_path, bibtex, gb7714, abstract_text, ai_notes, key_claims_json, tags_json,
+             read_status, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
+        params![
+            id,
+            input.project_id,
+            folder,
+            title,
+            input.authors.trim(),
+            input.year,
+            input.venue.trim(),
+            input.doi.trim(),
+            input.arxiv_id.trim(),
+            input.url.trim(),
+            input.pdf_path.trim(),
+            input.bibtex.trim(),
+            input.gb7714.trim(),
+            input.abstract_text.trim(),
+            input.ai_notes.trim(),
+            claims_json,
+            tags_json,
+            read_status,
+            created_at,
+            now
+        ],
+    )
+    .map_err(|e| format!("Failed to save library item: {e}"))?;
+
+    list_library_items(conn)?
+        .into_iter()
+        .find(|x| x.id == id)
+        .ok_or_else(|| "Saved library item not found".to_string())
+}
+
+pub fn delete_library_item(conn: &Connection, id: &str) -> Result<(), String> {
+    conn.execute("DELETE FROM library_items WHERE id = ?1", params![id])
+        .map_err(|e| format!("Failed to delete library item: {e}"))?;
+    Ok(())
+}
+
+pub fn list_research_memories(conn: &Connection) -> Result<Vec<ResearchMemory>, String> {
+    let mut stmt = conn
+        .prepare("SELECT id, category, title, content, enabled, updated_at FROM research_memories ORDER BY updated_at DESC")
+        .map_err(|e| format!("Failed to prepare list_research_memories: {e}"))?;
+    let rows = stmt
+        .query_map([], |r| {
+            Ok(ResearchMemory {
+                id: r.get(0)?,
+                category: r.get(1)?,
+                title: r.get(2)?,
+                content: r.get(3)?,
+                enabled: r.get::<_, i64>(4)? != 0,
+                updated_at: r.get(5)?,
+            })
+        })
+        .map_err(|e| format!("Failed to query research_memories: {e}"))?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r.map_err(|e| format!("Failed to read research_memory: {e}"))?);
+    }
+    Ok(out)
+}
+
+pub fn save_research_memory(conn: &Connection, input: &SaveResearchMemoryInput) -> Result<ResearchMemory, String> {
+    if input.title.trim().is_empty() || input.content.trim().is_empty() {
+        return Err("记忆标题与内容均不能为空。".to_string());
+    }
+    let id = input
+        .id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| Uuid::new_v4().to_string());
+    let category = if input.category.trim().is_empty() {
+        "direction"
+    } else {
+        input.category.trim()
+    };
+    let now = now_iso();
+    conn.execute(
+        "INSERT OR REPLACE INTO research_memories (id, category, title, content, enabled, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![
+            id,
+            category,
+            input.title.trim(),
+            input.content.trim(),
+            if input.enabled { 1_i64 } else { 0_i64 },
+            now
+        ],
+    )
+    .map_err(|e| format!("Failed to save research_memory: {e}"))?;
+    list_research_memories(conn)?
+        .into_iter()
+        .find(|m| m.id == id)
+        .ok_or_else(|| "Saved memory not found".to_string())
+}
+
+pub fn delete_research_memory(conn: &Connection, id: &str) -> Result<(), String> {
+    conn.execute("DELETE FROM research_memories WHERE id = ?1", params![id])
+        .map_err(|e| format!("Failed to delete research_memory: {e}"))?;
+    Ok(())
+}
+
+pub fn get_research_preferences(conn: &Connection) -> Result<ResearchPreferences, String> {
+    if let Some(raw) = get_setting(conn, "research_preferences")? {
+        if let Ok(prefs) = serde_json::from_str::<ResearchPreferences>(&raw) {
+            return Ok(prefs);
+        }
+    }
+    Ok(ResearchPreferences::default())
+}
+
+pub fn save_research_preferences(
+    conn: &Connection,
+    prefs: &ResearchPreferences,
+) -> Result<ResearchPreferences, String> {
+    let serialized = serde_json::to_string(prefs)
+        .map_err(|e| format!("Failed to serialize research_preferences: {e}"))?;
+    conn.execute(
+        "INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES ('research_preferences', ?1, ?2)",
+        params![serialized, now_iso()],
+    )
+    .map_err(|e| format!("Failed to save research_preferences: {e}"))?;
+    Ok(prefs.clone())
+}
+
+pub fn build_research_preferences_markdown(conn: &Connection) -> Result<String, String> {
+    let prefs = get_research_preferences(conn)?;
+    let memories = list_research_memories(conn)?;
+    let mut lines: Vec<String> = Vec::new();
+    if !prefs.output_language.trim().is_empty() {
+        lines.push(format!("- Preferred output language: {}", prefs.output_language.trim()));
+    }
+    if !prefs.citation_style.trim().is_empty() {
+        lines.push(format!("- Preferred citation standard: {}", prefs.citation_style.trim()));
+    }
+    if !prefs.delivery_format.trim().is_empty() {
+        lines.push(format!("- Preferred deliverable format: {}", prefs.delivery_format.trim()));
+    }
+    if !prefs.custom_rules.trim().is_empty() {
+        lines.push(format!("- Custom standing rules:\n{}", prefs.custom_rules.trim()));
+    }
+    let enabled_mem: Vec<&ResearchMemory> = memories.iter().filter(|m| m.enabled).collect();
+    if !enabled_mem.is_empty() {
+        lines.push("\n#### Enabled Long-Term Research Memories".to_string());
+        for m in enabled_mem {
+            lines.push(format!("- [{}] **{}**: {}", m.category, m.title, m.content));
+        }
+    }
+    Ok(lines.join("\n"))
+}
+
+pub fn list_ssh_hosts(conn: &Connection) -> Result<Vec<SshHost>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, alias, host, port, username, auth_type, key_path, remote_work_dir,
+                    notes, last_status, last_gpu_info, created_at, updated_at
+             FROM ssh_hosts ORDER BY updated_at DESC",
+        )
+        .map_err(|e| format!("Failed to prepare list_ssh_hosts: {e}"))?;
+    let rows = stmt
+        .query_map([], map_ssh_row)
+        .map_err(|e| format!("Failed to query ssh_hosts: {e}"))?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r.map_err(|e| format!("Failed to read ssh_host row: {e}"))?);
+    }
+    Ok(out)
+}
+
+fn map_ssh_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<SshHost> {
+    Ok(SshHost {
+        id: r.get(0)?,
+        alias: r.get(1)?,
+        host: r.get(2)?,
+        port: r.get(3)?,
+        username: r.get(4)?,
+        auth_type: r.get(5)?,
+        key_path: r.get(6)?,
+        remote_work_dir: r.get(7)?,
+        notes: r.get(8)?,
+        last_status: r.get(9)?,
+        last_gpu_info: r.get(10)?,
+        created_at: r.get(11)?,
+        updated_at: r.get(12)?,
+    })
+}
+
+pub fn get_ssh_host(conn: &Connection, id: &str) -> Result<SshHost, String> {
+    conn.query_row(
+        "SELECT id, alias, host, port, username, auth_type, key_path, remote_work_dir,
+                notes, last_status, last_gpu_info, created_at, updated_at
+         FROM ssh_hosts WHERE id = ?1",
+        params![id],
+        map_ssh_row,
+    )
+    .map_err(|e| format!("找不到计算主机 '{id}': {e}"))
+}
+
+pub fn save_ssh_host(conn: &Connection, id: &str, input: &SaveSshHostInput, resolved_key_path: &str) -> Result<SshHost, String> {
+    let now = now_iso();
+    let created_at: String = conn
+        .query_row("SELECT created_at FROM ssh_hosts WHERE id = ?1", params![id], |r| r.get(0))
+        .optional()
+        .map_err(|e| format!("Failed to check ssh_host: {e}"))?
+        .unwrap_or_else(|| now.clone());
+    let (last_status, last_gpu_info): (String, String) = conn
+        .query_row("SELECT last_status, last_gpu_info FROM ssh_hosts WHERE id = ?1", params![id], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })
+        .optional()
+        .map_err(|e| format!("Failed to query ssh_host status: {e}"))?
+        .unwrap_or_default();
+    let auth_type = if input.auth_type.trim().is_empty() { "key_path" } else { input.auth_type.trim() };
+    let remote_dir = if input.remote_work_dir.trim().is_empty() { "~" } else { input.remote_work_dir.trim() };
+    conn.execute(
+        "INSERT OR REPLACE INTO ssh_hosts
+            (id, alias, host, port, username, auth_type, key_path, remote_work_dir,
+             notes, last_status, last_gpu_info, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+        params![
+            id,
+            input.alias.trim(),
+            input.host.trim(),
+            input.port,
+            input.username.trim(),
+            auth_type,
+            resolved_key_path.trim(),
+            remote_dir,
+            input.notes.trim(),
+            last_status,
+            last_gpu_info,
+            created_at,
+            now
+        ],
+    )
+    .map_err(|e| format!("Failed to save ssh_host: {e}"))?;
+    get_ssh_host(conn, id)
+}
+
+pub fn update_ssh_host_status(conn: &Connection, id: &str, status: &str, gpu_info: &str) -> Result<(), String> {
+    conn.execute(
+        "UPDATE ssh_hosts SET last_status = ?2, last_gpu_info = ?3, updated_at = ?4 WHERE id = ?1",
+        params![id, status, gpu_info, now_iso()],
+    )
+    .map_err(|e| format!("Failed to update ssh_host status: {e}"))?;
+    Ok(())
+}
+
+pub fn delete_ssh_host(conn: &Connection, id: &str) -> Result<(), String> {
+    conn.execute("DELETE FROM ssh_hosts WHERE id = ?1", params![id])
+        .map_err(|e| format!("Failed to delete ssh_host: {e}"))?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -941,6 +1345,83 @@ mod tests {
         delete_project(&conn, &created.id).expect("delete_project");
         let remaining_logs = get_run_logs(&conn, "run-1", None, None).expect("get_run_logs after delete");
         assert!(remaining_logs.is_empty());
+
+        drop(conn);
+        let _ = fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn library_memory_and_ssh_hosts_crud_work() {
+        let db_path = temp_db_path("clawsgo_tables");
+        let conn = init_db(&db_path).expect("init_db");
+
+        let lib = save_library_item(
+            &conn,
+            &SaveLibraryItemInput {
+                title: "GrabCut Interactive Foreground Extraction".to_string(),
+                authors: "Rother, Kolmogorov, Blake".to_string(),
+                year: Some(2004),
+                venue: "SIGGRAPH".to_string(),
+                doi: "10.1145/1015706.1015720".to_string(),
+                tags: vec!["CV".to_string(), "Segmentation".to_string()],
+                read_status: "full_read".to_string(),
+                ..Default::default()
+            },
+        )
+        .expect("save_library_item");
+        assert_eq!(list_library_items(&conn).unwrap().len(), 1);
+        delete_library_item(&conn, &lib.id).unwrap();
+        assert!(list_library_items(&conn).unwrap().is_empty());
+
+        save_research_preferences(
+            &conn,
+            &ResearchPreferences {
+                output_language: "zh".to_string(),
+                citation_style: "GB/T 7714".to_string(),
+                delivery_format: "latex".to_string(),
+                custom_rules: "Always include effect sizes".to_string(),
+            },
+        )
+        .unwrap();
+        let mem = save_research_memory(
+            &conn,
+            &SaveResearchMemoryInput {
+                id: None,
+                category: "direction".to_string(),
+                title: "Catalysis".to_string(),
+                content: "Prefer DFT B3LYP benchmarks".to_string(),
+                enabled: true,
+            },
+        )
+        .unwrap();
+        let md = build_research_preferences_markdown(&conn).unwrap();
+        assert!(md.contains("GB/T 7714"));
+        assert!(md.contains("DFT B3LYP"));
+        delete_research_memory(&conn, &mem.id).unwrap();
+
+        let host = save_ssh_host(
+            &conn,
+            "h-1",
+            &SaveSshHostInput {
+                id: None,
+                alias: "555".to_string(),
+                host: "region.autodl.pro".to_string(),
+                port: 31245,
+                username: "root".to_string(),
+                auth_type: "key_path".to_string(),
+                key_path: "/tmp/id".to_string(),
+                private_key_pem: None,
+                remote_work_dir: "/root/exp".to_string(),
+                notes: "".to_string(),
+            },
+            "/tmp/id",
+        )
+        .unwrap();
+        assert_eq!(list_ssh_hosts(&conn).unwrap().len(), 1);
+        update_ssh_host_status(&conn, &host.id, "online", "RTX 4090").unwrap();
+        assert_eq!(get_ssh_host(&conn, &host.id).unwrap().last_gpu_info, "RTX 4090");
+        delete_ssh_host(&conn, &host.id).unwrap();
+        assert!(list_ssh_hosts(&conn).unwrap().is_empty());
 
         drop(conn);
         let _ = fs::remove_file(&db_path);

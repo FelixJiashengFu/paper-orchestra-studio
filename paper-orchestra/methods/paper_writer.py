@@ -28,6 +28,15 @@ from methods.agents.content_refinement_agent import ContentRefinementAgent
 from utils.common_utils import (
     create_log_folder,
 )
+from utils.pipeline_state import (
+    add_issue,
+    checkpoint_ready_literature,
+    checkpoint_ready_outline,
+    checkpoint_ready_writing,
+    effective_idea_path,
+    init_pipeline_state,
+    mark_node,
+)
 from utils.run_reports import with_run_reports
 
 
@@ -42,13 +51,14 @@ def write_single_paper(
     writer_model_name: str = "gemini-3.1-pro-preview",
     reflection_model_name: str = "gemini-3.1-pro-preview",
     research_cutoff: str = "2024-11",
+    resume: bool = False,
 ):
     latex_writeup_dir = osp.join(base_dir, "latex_writeup")
     pdf_file = osp.join(base_dir, "final_paper.pdf")
 
-    if osp.exists(latex_writeup_dir):
+    if (not resume) and osp.exists(latex_writeup_dir):
         shutil.rmtree(latex_writeup_dir)
-    if osp.exists(pdf_file):
+    if (not resume) and osp.exists(pdf_file):
         os.remove(pdf_file)
 
     materials_dir = osp.join(base_dir, "raw_materials")
@@ -59,17 +69,34 @@ def write_single_paper(
         shutil.copytree(old_figure_dir, new_figure_dir, dirs_exist_ok=True)
     figures_dir = new_figure_dir
 
+    state = init_pipeline_state(
+        base_dir,
+        use_plotting=False,
+        resume=resume,
+        models={"writer": writer_model_name, "reflection": reflection_model_name},
+    )
+
     max_n_tries = 3
     cur_try = 0
     succeed = False
 
     while (not succeed) and (cur_try < max_n_tries):
+        active_stage = "outline"
         try:
             assert osp.exists(
                 materials_dir
             ), f"Please make sure '{materials_dir}' exists!"
 
-            shutil.copytree(latex_template_dir, latex_writeup_dir, dirs_exist_ok=True)
+            if resume:
+                for fname in os.listdir(latex_template_dir):
+                    src_f = osp.join(latex_template_dir, fname)
+                    dst_f = osp.join(latex_writeup_dir, fname)
+                    if osp.isdir(src_f):
+                        shutil.copytree(src_f, dst_f, dirs_exist_ok=True)
+                    elif not osp.exists(dst_f):
+                        shutil.copy2(src_f, dst_f)
+            else:
+                shutil.copytree(latex_template_dir, latex_writeup_dir, dirs_exist_ok=True)
 
             guidelines_path = osp.join(latex_writeup_dir, "guidelines.md")
             latex_template_path = osp.join(latex_writeup_dir, "template.tex")
@@ -92,36 +119,51 @@ def write_single_paper(
                 experimental_log_file_path
             ), f"No experimental log file detected at '{experimental_log_file_path}'!"
 
+            agent_idea_path = effective_idea_path(base_dir, materials_dir, idea_file_path)
+
             ###############################################################################################
             # Step 1: Call outline agent
-            outline_agent = OutlineAgent(
-                model_name=writer_model_name, cutoff_date=research_cutoff
-            )
             outline_file_path = osp.join(base_dir, "outline.json")
-            outline_agent.run(
-                idea_file=idea_file_path,
-                experimental_log_file=experimental_log_file_path,
-                latex_template_file=latex_template_path,
-                conference_guidelines_file=guidelines_path,
-                output_filepath=outline_file_path,
-            )
+            if resume and checkpoint_ready_outline(base_dir):
+                print(" >> [Loop Resume] Skipping OutlineAgent (reusing outline.json checkpoint)")
+                mark_node(base_dir, state, "outline", "completed", note="从断点 outline.json 恢复")
+            else:
+                mark_node(base_dir, state, "outline", "running")
+                outline_agent = OutlineAgent(
+                    model_name=writer_model_name, cutoff_date=research_cutoff
+                )
+                outline_agent.run(
+                    idea_file=agent_idea_path,
+                    experimental_log_file=experimental_log_file_path,
+                    latex_template_file=latex_template_path,
+                    conference_guidelines_file=guidelines_path,
+                    output_filepath=outline_file_path,
+                )
+                mark_node(base_dir, state, "outline", "completed")
 
             ###############################################################################################
             # Step 2: Call HybridLiteratureAgent
+            active_stage = "literature"
             literature_agent_output_dir = osp.join(base_dir, "literature_agent_output")
-            literature_agent = HybridLiteratureAgent(
-                idea_path=idea_file_path,
-                experimental_log_path=experimental_log_file_path,
-                latex_template_path=latex_template_path,
-                conference_guidelines_path=guidelines_path,
-                output_dir=literature_agent_output_dir,
-                model_name=writer_model_name,
-                max_workers=3,
-            )
-            literature_agent.run(
-                outline_path=outline_file_path,
-                cutoff_date=research_cutoff,
-            )
+            if resume and checkpoint_ready_literature(base_dir):
+                print(" >> [Loop Resume] Skipping HybridLiteratureAgent (reusing citation_map.json checkpoint)")
+                mark_node(base_dir, state, "literature", "completed", note="从断点 citation_map.json 恢复")
+            else:
+                mark_node(base_dir, state, "literature", "running")
+                literature_agent = HybridLiteratureAgent(
+                    idea_path=agent_idea_path,
+                    experimental_log_path=experimental_log_file_path,
+                    latex_template_path=latex_template_path,
+                    conference_guidelines_path=guidelines_path,
+                    output_dir=literature_agent_output_dir,
+                    model_name=writer_model_name,
+                    max_workers=3,
+                )
+                literature_agent.run(
+                    outline_path=outline_file_path,
+                    cutoff_date=research_cutoff,
+                )
+                mark_node(base_dir, state, "literature", "completed")
             shutil.copy(
                 osp.join(literature_agent_output_dir, "outline_v1.json"),
                 outline_file_path,
@@ -137,24 +179,33 @@ def write_single_paper(
 
             ###############################################################################################
             # Step 3. Call SectionWritingAgent
+            active_stage = "writing"
             citation_map_path = osp.join(
                 literature_agent_output_dir, "citation_map.json"
             )
-            section_writing_agent = SectionWritingAgent(
-                outline_path=outline_file_path,
-                template_path=osp.join(latex_writeup_dir, "template.tex"),
-                idea_path=idea_file_path,
-                experimental_log_path=experimental_log_file_path,
-                citation_map_path=citation_map_path,
-                figures_info_path=osp.join(figures_dir, "info.json"),
-                guidelines_path=guidelines_path,
-                model_name=writer_model_name,
-            )
             raw_draft_tex_path = osp.join(latex_writeup_dir, "raw_draft_paper.tex")
-            section_writing_agent.run(output_path=raw_draft_tex_path)
+            if resume and checkpoint_ready_writing(base_dir):
+                print(" >> [Loop Resume] Skipping SectionWritingAgent (reusing raw_draft_paper.tex checkpoint)")
+                mark_node(base_dir, state, "writing", "completed", note="从断点 raw_draft_paper.tex 恢复")
+            else:
+                mark_node(base_dir, state, "writing", "running")
+                section_writing_agent = SectionWritingAgent(
+                    outline_path=outline_file_path,
+                    template_path=osp.join(latex_writeup_dir, "template.tex"),
+                    idea_path=agent_idea_path,
+                    experimental_log_path=experimental_log_file_path,
+                    citation_map_path=citation_map_path,
+                    figures_info_path=osp.join(figures_dir, "info.json"),
+                    guidelines_path=guidelines_path,
+                    model_name=writer_model_name,
+                )
+                section_writing_agent.run(output_path=raw_draft_tex_path)
+                mark_node(base_dir, state, "writing", "completed")
 
             ###############################################################################################
             # Step 4: Content Reflection
+            active_stage = "refinement"
+            mark_node(base_dir, state, "refinement", "running")
             content_refinement_workdir = os.path.join(
                 base_dir, "content_refinement_workdir"
             )
@@ -179,6 +230,9 @@ def write_single_paper(
             content_refinment_agent_output_pdf_path = content_refinement_agent.run(
                 texfile_path=raw_draft_tex_path
             )
+            mark_node(base_dir, state, "refinement", "completed")
+            active_stage = "compile"
+            mark_node(base_dir, state, "compile", "running")
             assert osp.exists(
                 content_refinment_agent_output_pdf_path
             ), f"Content Refinement Agent failed to produce final PDF at {content_refinment_agent_output_pdf_path}!"
@@ -189,13 +243,16 @@ def write_single_paper(
             )
             shutil.copy(content_refinment_agent_output_pdf_path, final_pdf_path)
             print(" >> Final PDF saved to:\n", final_pdf_path)
+            mark_node(base_dir, state, "compile", "completed")
 
             succeed = True
             return True
 
-        except Exception:
+        except Exception as exc:
             print(f"[Try {cur_try+1}/{max_n_tries}] EXCEPTION in perform_writeup:")
             print(traceback.format_exc())
+            add_issue(base_dir, state, active_stage, f"Try {cur_try + 1}/{max_n_tries}: {type(exc).__name__}: {exc}")
+            mark_node(base_dir, state, active_stage, "failed", error=f"{type(exc).__name__}: {exc}")
             cur_try += 1
             if cur_try < max_n_tries:
                 print("Try again now...")
