@@ -1,0 +1,9 @@
+*.pyc
+*.out
+.env
+*.log
+datasets/*
+paper_output*
+*.zip
+# Scratch builds of tools/submission_tools.py
+.tmp_submission/

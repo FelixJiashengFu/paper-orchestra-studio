@@ -1,0 +1,27 @@
+[package]
+name = "paper-orchestra-desktop"
+version = "0.1.0"
+description = "Desktop client for PaperOrchestra with Tauri v2, Rust, and SQLite"
+authors = ["PaperOrchestra Desktop"]
+edition = "2021"
+
+[lib]
+name = "paper_orchestra_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+rusqlite = { version = "0.43", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["process", "io-util", "sync", "rt-multi-thread", "time", "macros"] }
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4"] }
+base64 = "0.22"
+# Overleaf export (zip of the final LaTeX sources). Deflate only: pure-Rust backend, no C deps.
+zip = { version = "2.6", default-features = false, features = ["deflate"] }

@@ -1,0 +1,32 @@
+# Secrets and local provider overrides
+.env
+*.local
+providers.json
+
+# Python environments and caches
+.venv/
+__pycache__/
+*.py[cod]
+*.out
+*.log
+*.zip
+
+# Runtime outputs and local databases
+desktop_runs/
+.tmp_submission/
+paper-orchestra/datasets/*
+paper-orchestra/paper_output*
+*.db
+*.db-shm
+*.db-wal
+
+# Node / Vite / Tauri build artifacts
+node_modules/
+dist/
+dist-ssr/
+paper-orchestra-desktop/src-tauri/target/
+paper-orchestra-desktop/src-tauri/gen/schemas/
+
+# OS metadata
+.DS_Store
+._*

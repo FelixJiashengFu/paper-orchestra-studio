@@ -1,0 +1,755 @@
+/* ==========================================================================
+   「编辑并实时预览」 full-window editor (LiveEditor.tsx, PdfPreview.tsx)
+   Colours come from the tokens in styles.css, so light and dark both fit.
+   ========================================================================== */
+
+.le-overlay {
+  /* Editor-only tokens (light) */
+  --le-selection: rgba(43, 74, 112, 0.2);
+  --le-selection-match: rgba(45, 100, 112, 0.14);
+  --le-active-line: rgba(31, 29, 26, 0.035);
+  --le-bracket: rgba(43, 74, 112, 0.14);
+  --le-error-line: rgba(163, 57, 47, 0.09);
+  --le-flash: rgba(201, 150, 40, 0.38);
+  --le-pdf-bg: #e7e2d8;
+  --le-pdf-hl: rgba(232, 176, 40, 0.42);
+  --le-pdf-hl-border: rgba(196, 136, 0, 0.9);
+
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--bg-canvas);
+  color: var(--text-primary);
+  animation: le-in 0.16s ease-out;
+}
+
+@media (prefers-color-scheme: dark) {
+  .le-overlay {
+    --le-selection: rgba(147, 178, 217, 0.28);
+    --le-selection-match: rgba(134, 188, 196, 0.16);
+    --le-active-line: rgba(236, 231, 223, 0.045);
+    --le-bracket: rgba(147, 178, 217, 0.2);
+    --le-error-line: rgba(227, 137, 125, 0.13);
+    --le-flash: rgba(216, 177, 105, 0.34);
+    --le-pdf-bg: #121110;
+    --le-pdf-hl: rgba(232, 176, 40, 0.42);
+    --le-pdf-hl-border: rgba(240, 190, 70, 0.95);
+  }
+}
+
+@keyframes le-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.le-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+body.le-resizing,
+body.le-resizing * {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+
+/* ---- header ----------------------------------------------------------- */
+
+.le-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 48px;
+  padding: 8px 12px 8px 18px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-card);
+}
+
+.le-head-main {
+  display: flex;
+  align-items: baseline;
+  gap: 4px 12px;
+  flex-wrap: wrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.le-title {
+  margin: 0;
+  font-size: var(--fs-lg);
+  white-space: nowrap;
+}
+
+.le-path {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  max-width: 100%;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+}
+
+.le-path svg {
+  flex-shrink: 0;
+  align-self: center;
+  color: var(--text-muted);
+}
+
+.le-path-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.le-hint {
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+}
+
+.le-close {
+  flex-shrink: 0;
+}
+
+/* ---- toolbar ---------------------------------------------------------- */
+
+.le-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 12px 8px 18px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-card);
+}
+
+.le-file {
+  display: inline-flex;
+  min-width: 0;
+}
+
+.le-file-select {
+  width: auto;
+  min-width: 220px;
+  max-width: 340px;
+  min-height: var(--control-h-sm);
+  padding-top: 3px;
+  padding-bottom: 3px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.le-kbd {
+  margin-left: 2px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: var(--code-inline-bg);
+  font-family: var(--font-sans);
+  font-size: 10.5px;
+  font-weight: 500;
+  line-height: 1.3;
+  opacity: 0.85;
+}
+
+.btn-primary .le-kbd {
+  background: rgba(255, 255, 255, 0.18);
+  color: inherit;
+}
+
+.le-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  margin-left: auto;
+  padding-left: var(--space-2);
+  color: var(--text-secondary);
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.le-status-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.le-status svg {
+  flex-shrink: 0;
+}
+
+.le-status-dot {
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+
+.le-status.is-busy {
+  color: var(--info);
+}
+
+.le-status.is-ok .le-status-dot {
+  background: var(--success);
+}
+
+.le-status.is-warn {
+  color: var(--warn);
+}
+
+.le-status.is-warn .le-status-dot {
+  background: var(--warn);
+}
+
+.le-status.is-error {
+  color: var(--danger);
+  font-weight: 500;
+}
+
+.le-status.is-error .le-status-dot {
+  background: var(--danger);
+}
+
+/* ---- banners ---------------------------------------------------------- */
+
+.le-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 18px;
+  border-bottom: 1px solid var(--border);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+}
+
+.le-banner svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.le-banner.is-warn {
+  background: var(--warn-soft);
+  border-color: var(--warn-border);
+  color: var(--warn);
+}
+
+.le-banner.is-error {
+  background: var(--danger-soft);
+  border-color: var(--danger-border);
+  color: var(--danger);
+}
+
+/* ---- body: editor | divider | pdf -------------------------------------- */
+
+.le-body {
+  display: grid;
+  flex: 1;
+  min-height: 0;
+}
+
+.le-pane {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.le-pane-code {
+  background: var(--bg-card);
+}
+
+.le-editor {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.le-editor .cm-editor {
+  height: 100%;
+}
+
+.le-editor .cm-editor.cm-focused {
+  outline: none;
+}
+
+.le-pane-cover {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  padding: var(--space-6);
+  background: var(--bg-card);
+}
+
+.le-loading {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-muted);
+}
+
+.le-open-error {
+  display: flex;
+  gap: 10px;
+  max-width: 460px;
+  padding: 12px 14px;
+  border: 1px solid var(--danger-border);
+  border-radius: var(--radius-md);
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: var(--fs-sm);
+  line-height: 1.6;
+  word-break: break-word;
+}
+
+.le-open-error svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.le-open-error-title {
+  font-weight: 600;
+}
+
+.le-divider {
+  position: relative;
+  cursor: col-resize;
+  background: var(--border);
+  touch-action: none;
+}
+
+.le-divider::after {
+  /* a wider invisible grab area */
+  content: "";
+  position: absolute;
+  inset: 0 -4px;
+}
+
+.le-divider:hover,
+.le-divider:focus-visible {
+  background: var(--accent-border);
+  outline: none;
+}
+
+/* ---- CodeMirror marks ---------------------------------------------------- */
+
+.le-editor .cm-line.le-cm-error {
+  background-color: var(--le-error-line);
+  box-shadow: inset 3px 0 0 var(--danger);
+}
+
+.le-editor .cm-gutterElement.le-cm-error-gutter {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.le-editor .cm-line.le-cm-flash {
+  animation: le-flash 1.5s ease-out;
+}
+
+@keyframes le-flash {
+  0%,
+  35% {
+    background-color: var(--le-flash);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+/* ---- issues panel ------------------------------------------------------ */
+
+.le-issues {
+  flex-shrink: 0;
+  max-height: 42%;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--border);
+  background: var(--bg-subtle);
+}
+
+.le-issues-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 32px;
+  padding: 0 12px;
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--fs-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.le-issues-head:hover {
+  background: var(--hover-tint);
+}
+
+.le-issues-chev {
+  flex-shrink: 0;
+  transition: transform 0.15s ease;
+}
+
+.le-issues.is-open .le-issues-chev {
+  transform: rotate(90deg);
+}
+
+.le-issues-title {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.le-issues-summary {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+}
+
+.le-issues-summary.is-error {
+  color: var(--danger);
+}
+
+.le-issues-summary.is-ok {
+  color: var(--success);
+}
+
+.le-issues-body {
+  min-height: 0;
+  overflow: auto;
+  padding: 0 8px 10px;
+}
+
+.le-issue-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.le-issue {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  width: 100%;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-primary);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  text-align: left;
+  cursor: pointer;
+}
+
+.le-issue:hover:not(:disabled) {
+  background: var(--hover-tint);
+}
+
+.le-issue:disabled {
+  cursor: default;
+  color: var(--text-secondary);
+}
+
+.le-issue-icon {
+  flex-shrink: 0;
+  margin-top: 3px;
+  color: var(--danger);
+}
+
+.le-issue.is-warning .le-issue-icon {
+  color: var(--warn);
+}
+
+.le-issue-text {
+  min-width: 0;
+  word-break: break-word;
+}
+
+.le-issue-where {
+  color: var(--danger);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.le-issue-plain {
+  padding: 5px 8px;
+  color: var(--text-secondary);
+  font-size: var(--fs-sm);
+  word-break: break-word;
+}
+
+.le-issue-plain.is-error {
+  color: var(--danger);
+}
+
+.le-log {
+  margin: 6px 8px 0;
+}
+
+.le-log summary {
+  color: var(--text-secondary);
+  font-size: var(--fs-xs);
+  cursor: pointer;
+}
+
+.le-log pre {
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  max-height: 240px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--code-bg);
+  color: var(--code-text);
+  font-size: 11.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ---- PDF preview ---------------------------------------------------------- */
+
+.le-pdf {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+
+.le-pdf-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 34px;
+  padding: 2px 8px 2px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-card);
+  font-size: var(--fs-sm);
+}
+
+.le-pdf-pages {
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.le-pdf-hint {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+}
+
+.le-pdf-zoom {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.le-pdf-fit {
+  min-width: 84px;
+  font-variant-numeric: tabular-nums;
+}
+
+.le-pdf-fit[aria-pressed="true"] {
+  color: var(--accent);
+}
+
+.le-pdf-frame {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+.le-pdf-host {
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+  background: var(--le-pdf-bg);
+}
+
+.le-pdf-stack {
+  /* keep the side padding in sync with STACK_PAD_X in PdfPreview.tsx */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  box-sizing: border-box;
+  width: max-content;
+  min-width: 100%;
+  padding: 16px 16px 28px;
+}
+
+.le-pdf-page {
+  position: relative;
+  flex-shrink: 0;
+  overflow: hidden;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18), 0 0 0 1px rgba(0, 0, 0, 0.04);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.le-pdf-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.le-pdf-hl {
+  position: absolute;
+  z-index: 1;
+  border-radius: 2px;
+  background: var(--le-pdf-hl);
+  box-shadow: 0 0 0 1.5px var(--le-pdf-hl-border);
+  mix-blend-mode: multiply;
+  pointer-events: none;
+  animation: le-pdf-hl 1.6s ease-out forwards;
+}
+
+@keyframes le-pdf-hl {
+  0%,
+  55% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+.le-pdf-empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: var(--space-6);
+  pointer-events: none;
+}
+
+.le-pdf-msg,
+.le-pdf-error {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 360px;
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+  text-align: center;
+}
+
+.le-pdf-msg.is-error,
+.le-pdf-error {
+  color: var(--danger);
+}
+
+.le-pdf-stale {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  z-index: 3;
+  transform: translateX(-50%);
+  max-width: calc(100% - 32px);
+  padding: 4px 10px;
+  border: 1px solid var(--warn-border);
+  border-radius: 999px;
+  background: var(--warn-soft);
+  color: var(--warn);
+  box-shadow: var(--shadow-sm);
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+
+.le-pdf-stale.is-error {
+  top: 40px;
+  border-color: var(--danger-border);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+/* ---- entry points in ArtifactsView (this file is loaded with it) -------- */
+
+.le-preview-side {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.le-overlay-loading {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: var(--bg-canvas);
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+}
+
+/* ---- header actions, banner button, ArtifactsView source note ---------- */
+
+.le-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.le-banner-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.le-banner-action {
+  flex-shrink: 0;
+  margin: -3px 0;
+}
+
+.le-av-source-note {
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--info-border);
+  border-radius: var(--radius-md);
+  background: var(--info-soft);
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.le-av-source-note code {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}

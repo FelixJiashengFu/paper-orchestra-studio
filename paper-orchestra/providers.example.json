@@ -1,0 +1,35 @@
+{
+  "_readme": "示例文件：复制为同目录下的 providers.json 再按需修改。密钥写进 .env（例如 MY_RELAY_TOKEN=你的密钥），这里只写变量名。留空的 auto_model / default_provider / task_models 不生效。完整字段说明见 docs/PROVIDERS_zh.md。",
+  "auto_model": "",
+  "default_provider": "",
+  "task_models": {},
+  "providers": [
+    {
+      "name": "myrelay",
+      "type": "openai",
+      "base_url": "https://relay.example.com/v1",
+      "api_key_env": "MY_RELAY_TOKEN",
+      "models": ["example-chat-large", "example-chat-small"],
+      "default_model": "example-chat-large",
+      "aliases": ["relay"]
+    },
+    {
+      "name": "claude-relay",
+      "type": "anthropic",
+      "base_url": "https://claude-relay.example.com",
+      "default_model": "claude-sonnet-4-6",
+      "vision": true,
+      "drop_params": ["top_p"]
+    },
+    {
+      "name": "lab-server",
+      "type": "openai",
+      "base_url": "http://192.168.1.20:8000/v1",
+      "api_key_env": ["LAB_SERVER_TOKEN"],
+      "models": ["example-lab-model"],
+      "vision": false,
+      "drop_params": ["temperature", "top_p"],
+      "headers": {"X-Client": "paper-orchestra"}
+    }
+  ]
+}
