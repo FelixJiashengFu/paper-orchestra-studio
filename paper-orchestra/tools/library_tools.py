@@ -81,17 +81,25 @@ def _authors_to_str(authors: Any) -> str:
     return ""
 
 
+def _escape_bibtex_text(text: Any) -> str:
+    s = str(text or "")
+    return re.sub(r"(?<!\\)((?:\\\\)*)([&%#])", r"\1\\\2", s)
+
+
 def _format_bibtex(title: str, authors: str, year: Any, venue: str, doi: str, url: str) -> str:
     key = _make_cite_key(authors, year, title)
-    bib_authors = " and ".join(a.strip() for a in authors.split(",") if a.strip()) or "Unknown"
+    bib_authors = _escape_bibtex_text(
+        " and ".join(a.strip() for a in authors.split(",") if a.strip()) or "Unknown"
+    )
+    bib_title = _escape_bibtex_text(title or "Untitled")
     entry_type = "article" if venue else "misc"
     lines = [f"@{entry_type}{{{key},"]
-    lines.append(f"  title = {{{title or 'Untitled'}}},")
+    lines.append(f"  title = {{{bib_title}}},")
     lines.append(f"  author = {{{bib_authors}}},")
     if year:
         lines.append(f"  year = {{{year}}},")
     if venue:
-        lines.append(f"  journal = {{{venue}}},")
+        lines.append(f"  journal = {{{_escape_bibtex_text(venue)}}},")
     if doi:
         lines.append(f"  doi = {{{doi}}},")
     if url:

@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <title>PaperOrchestra Studio</title>
+  <!-- "The conductor's pilcrow": a serif paragraph mark (writing) whose second stem is a
+       conductor's baton (orchestration), raised through the top bar, cork handle resting on the
+       baseline. Two colours only: ink blue #2b4a70 tile, paper #f6f3ec mark.
+       Grid: tile, bar, stem and baseline sit on multiples of 64, i.e. whole pixels at 16, 32 and 48 px.
+       Minimums: stem/bar 64, baton 64 at the tip and 72 above the cork, counters 110+ units. -->
+  <rect x="64" y="64" width="896" height="896" rx="208" fill="#2b4a70"/>
+  <g fill="#f6f3ec">
+    <!-- bowl + stem + top bar as one shape; the bar runs into the baton's axis so the join is solid -->
+    <path d="M448 256 H710 V320 H512 V832 H448 V640 C330 640 240 557 240 448 C240 339 330 256 448 256 Z"/>
+    <!-- baton: drawn upright from its base point, then tilted 4 degrees.
+         Pear-shaped cork (100 wide) on the baseline, shaft tapering 72 to 64, round tip above the bar. -->
+    <path transform="translate(672 832) rotate(4)" d="M36 -240 L32 -640 A32 32 0 0 0 -32 -640 L-36 -240 C-36 -170 -50 -140 -50 -50 A50 50 0 0 0 50 -50 C50 -140 36 -170 36 -240 Z"/>
+  </g>
+</svg>

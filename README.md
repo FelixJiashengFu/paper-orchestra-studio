@@ -92,7 +92,8 @@
 paper-orchestra-studio/
 ├── paper-orchestra/            # Python 多智能体论文流水线、模板库、核查/投稿工具与单元测试
 ├── paper-orchestra-desktop/    # Tauri (Rust + React/TypeScript) 桌面端应用与打包脚本
-├── integrations/               # Qoder 插件、实时论文工作台、工具树与 Canvas 控制台
+├── plugins/                    # 按平台分置的原生插件包（antigravity/、claude-desktop/ 与 shared/ 共享 MCP/UI）
+├── integrations/               # Qoder 插件（integrations/qoder-plugin/）、实时论文工作台、工具树与 Canvas 控制台
 ├── scripts/                    # 后端一键安装脚本（setup-backend.ps1 / .sh）
 ├── docs/screenshots/           # 桌面工作台实际使用界面与实例截图
 ├── LICENSE                     # Apache License 2.0

@@ -1,0 +1,159 @@
+{
+  "manifest_version": "0.3",
+  "name": "paper-orchestra-studio",
+  "display_name": "PaperOrchestra Studio",
+  "version": "1.1.0",
+  "description": "Local AI scientific paper pipeline, 19 LaTeX venue templates, conflict-safe XeLaTeX/SyncTeX workbench, Desktop TCP bridge, Nature & Lean 4 audits, 8-source literature graph, 5 built-in + 5 SOP skills, region-circle figure studio, interactive HTML/Word/PDF export, and SSH/GPU management.",
+  "author": {
+    "name": "FelixJiashengFu",
+    "url": "https://github.com/FelixJiashengFu"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/FelixJiashengFu/paper-orchestra-studio"
+  },
+  "license": "Apache-2.0",
+  "icon": "icon.png",
+  "server": {
+    "type": "python",
+    "entry_point": "server/paper_orchestra_mcp.py",
+    "mcp_config": {
+      "command": "python3",
+      "args": [
+        "${__dirname}/server/paper_orchestra_mcp.py"
+      ],
+      "env": {
+        "PAPER_ORCHESTRA_REPO": "${user_config.paper_orchestra_repo}",
+        "PAPER_ORCHESTRA_PYTHON": "${user_config.paper_orchestra_python}",
+        "PO_DEFAULT_PDF_DIR": "${user_config.default_pdf_dir}",
+        "PO_DEFAULT_HTML_DIR": "${user_config.default_html_dir}"
+      }
+    }
+  },
+  "user_config": {
+    "paper_orchestra_repo": {
+      "type": "directory",
+      "title": "PaperOrchestra Backend Directory (Optional)",
+      "description": "Path to paper-orchestra/ containing paper_writing_cli.py. Leave blank to auto-detect from Desktop App SQLite settings or ~/paper-orchestra.",
+      "required": false
+    },
+    "paper_orchestra_python": {
+      "type": "file",
+      "title": "Backend Python Executable (Optional)",
+      "description": "Path to .venv Python interpreter (e.g. paper-orchestra/.venv/bin/python). Leave blank to auto-detect.",
+      "required": false
+    },
+    "default_pdf_dir": {
+      "type": "directory",
+      "title": "Default PDF Output Directory (Optional)",
+      "description": "Default folder for standalone exported PDF reports when no explicit path is supplied.",
+      "required": false
+    },
+    "default_html_dir": {
+      "type": "directory",
+      "title": "Default HTML Output Directory (Optional)",
+      "description": "Default folder for standalone interactive HTML reports when no explicit path is supplied.",
+      "required": false
+    }
+  },
+  "compatibility": {
+    "platforms": [
+      "darwin",
+      "win32",
+      "linux"
+    ],
+    "runtimes": {
+      "python": ">=3.9.0"
+    }
+  },
+  "tools": [
+    {
+      "name": "po_check_environment",
+      "description": "Check backend paths, Python runtime, TeX Live/MacTeX, Pandoc, Chrome, Lean 4, SSH/SCP, export directories, and SQLite counts."
+    },
+    {
+      "name": "po_check_providers",
+      "description": "Check 20+ configured LLM platforms, custom providers.json, and 8 scholarly search sources."
+    },
+    {
+      "name": "po_list_templates",
+      "description": "List all 19 conference, journal, Chinese GB/T 7714, and mathematical modeling LaTeX templates with venue.json style rules."
+    },
+    {
+      "name": "po_parse_intake_form",
+      "description": "Parse PaperOrchestra project intake forms (.pdf, .docx, .md, .txt) into structured fields."
+    },
+    {
+      "name": "po_projects",
+      "description": "Create, list, read, update, and delete SQLite paper projects, figures, and historical runs."
+    },
+    {
+      "name": "po_start_paper_run",
+      "description": "Start or resume a multi-agent paper generation pipeline with optional 19-step model overrides."
+    },
+    {
+      "name": "po_job_manage",
+      "description": "List background jobs, inspect live stage/token usage, tail redacted logs, or stop running jobs."
+    },
+    {
+      "name": "po_inspect_run",
+      "description": "Inspect run directory outputs (PDF, TeX, citation audit, usage report, peer reviews) or read artifact files."
+    },
+    {
+      "name": "po_data_analysis",
+      "description": "Profile tabular datasets offline or run the 7-step reproducible self-fixing analysis pipeline."
+    },
+    {
+      "name": "po_run_sop",
+      "description": "Run the 5 scientific SOPs: paper_reading, lit_review, topic_ideation, reproduction, and math_modeling."
+    },
+    {
+      "name": "po_custom_skills",
+      "description": "List, save, delete, fetch from GitHub/HTTPS URLs, and run custom Markdown research skills."
+    },
+    {
+      "name": "po_figure_studio",
+      "description": "Create 3-route figures, register versioned bundles, apply bbox region-circle local edits, or restore versions."
+    },
+    {
+      "name": "po_literature_library",
+      "description": "Search 8 scholarly sources, import DOI/PDF into SQLite, build knowledge graphs, and export BibTeX/GB7714."
+    },
+    {
+      "name": "po_latex_copilot",
+      "description": "AI LaTeX editing copilot and inline claim-to-citation traceability."
+    },
+    {
+      "name": "po_latex_workbench",
+      "description": "Clean latexmk preview compilation, forward/inverse SyncTeX lookup, and Overleaf ZIP export."
+    },
+    {
+      "name": "po_submission_audit",
+      "description": "Run all 8 pre-submission checks: Nature manuscript-audit, cite-online, arxiv, blind, diagnose, versions, diff, lean-audit."
+    },
+    {
+      "name": "po_export_document",
+      "description": "Export Markdown reports to interactive Claude Artifacts-style HTML, Word (.docx), PDF, or Google Drive."
+    },
+    {
+      "name": "po_compute_and_memory",
+      "description": "Manage persistent Research Memories/Preferences and remote SSH/GPU hosts (nvidia-smi, ssh exec, scp)."
+    },
+    {
+      "name": "po_studio_bridge",
+      "description": "Connect to running PaperOrchestra Studio desktop app over loopback TCP (`status`, `open_studio`, bridge jobs, integrations launcher)."
+    },
+    {
+      "name": "po_settings_and_setup",
+      "description": "Manage SQLite app settings, validate `providers.json`, check 20-platform boolean credential readiness, and discover backend setup scripts."
+    },
+    {
+      "name": "po_open_workbench",
+      "description": "Open the interactive PaperOrchestra Studio Workbench UI (projects, pipeline monitor, Canvas intervention, Figure bbox bench, LaTeX editor)."
+    },
+    {
+      "name": "po_open_tool_tree",
+      "description": "Open the interactive PaperOrchestra Studio 10-group Tool Tree reference and delegation UI."
+    }
+  ]
+}

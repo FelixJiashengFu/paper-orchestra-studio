@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "paper_orchestra": {
+      "command": "python3",
+      "args": [
+        "${PLUGIN_ROOT}/server/paper_orchestra_mcp.py"
+      ],
+      "env": {
+        "PAPER_ORCHESTRA_PLUGIN_DATA": "${PLUGIN_DATA}"
+      }
+    }
+  }
+}

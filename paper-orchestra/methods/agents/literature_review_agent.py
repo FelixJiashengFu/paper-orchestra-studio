@@ -18,7 +18,7 @@ import re
 import datetime
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import List, Optional, Dict
+from typing import Any, List, Optional, Dict
 from pydantic import BaseModel, Field
 from google.genai import types  # type: ignore
 
@@ -929,6 +929,11 @@ class HybridLiteratureAgent:
         title_part = "".join(meaningful[:2]) if meaningful else "Paper"
         return f"{clean_author}{year_str}{title_part}"
 
+    @staticmethod
+    def _escape_bibtex_text(text: Any) -> str:
+        s = str(text or "")
+        return re.sub(r"(?<!\\)((?:\\\\)*)([&%#])", r"\1\\\2", s)
+
     def _generate_bibtex(self, papers: List[PaperData]) -> str:
         entries = []
         seen_keys = set()
@@ -942,14 +947,15 @@ class HybridLiteratureAgent:
             p.citation_key = unique_key
             seen_keys.add(unique_key)
 
-            author_str = " and ".join(p.authors) if p.authors else "Unknown"
+            author_str = self._escape_bibtex_text(" and ".join(p.authors) if p.authors else "Unknown")
+            title_str = self._escape_bibtex_text(p.title)
             entry_type = "article" if p.journal else "inproceedings"
 
-            entry = f"@{entry_type}{{{p.citation_key},\n  title={{{p.title}}},\n  author={{{author_str}}},\n"
+            entry = f"@{entry_type}{{{p.citation_key},\n  title={{{title_str}}},\n  author={{{author_str}}},\n"
             if p.journal:
-                entry += f"  journal={{{p.journal}}},\n"
+                entry += f"  journal={{{self._escape_bibtex_text(p.journal)}}},\n"
             else:
-                entry += f"  booktitle={{{p.venue}}},\n"
+                entry += f"  booktitle={{{self._escape_bibtex_text(p.venue)}}},\n"
             entry += f"  year={{{p.year}}}"
             if p.volume:
                 entry += f",\n  volume={{{p.volume}}}"

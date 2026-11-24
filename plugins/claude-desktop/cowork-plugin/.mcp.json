@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "paper-orchestra-studio": {
+      "command": "python3",
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT}/server/paper_orchestra_mcp.py"
+      ]
+    }
+  }
+}
