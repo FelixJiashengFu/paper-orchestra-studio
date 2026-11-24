@@ -469,7 +469,7 @@ pub fn save_project(conn: &Connection, input: &SaveProjectInput) -> Result<Proje
                 idea_markdown = ?11,
                 experimental_log_markdown = ?12,
                 updated_at = ?13
-             WHERE id = ?1",
+             WHERE id = ?1 AND (?14 IS NULL OR updated_at = ?14)",
             params![
                 input.id,
                 input.title.trim(),
@@ -483,13 +483,15 @@ pub fn save_project(conn: &Connection, input: &SaveProjectInput) -> Result<Proje
                 input.plotting_max_critic_rounds.clamp(1, 10),
                 input.idea_markdown,
                 input.experimental_log_markdown,
-                now
+                now,
+                input.expected_updated_at
             ],
         )
         .map_err(|e| format!("Failed to update project: {e}"))?;
 
     if affected == 0 {
-        return Err(format!("Project '{}' does not exist", input.id));
+        get_project(conn, &input.id)?;
+        return Err("The project changed. Reload it before saving your edits.".into());
     }
 
     get_project(conn, &input.id)
@@ -1287,6 +1289,7 @@ mod tests {
         let saved = save_project(
             &conn,
             &SaveProjectInput {
+                expected_updated_at: None,
                 id: created.id.clone(),
                 title: "Updated Paper".to_string(),
                 template_name: "cvpr2025".to_string(),

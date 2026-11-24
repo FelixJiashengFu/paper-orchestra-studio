@@ -1,0 +1,21 @@
+{
+  "name": "paper-orchestra-studio",
+  "version": "0.1.0",
+  "description": "Run PaperOrchestra Studio research, writing, LaTeX and submission workflows from Qoder.",
+  "displayName": "PaperOrchestra Studio",
+  "author": {
+    "name": "Felix Jiasheng Fu"
+  },
+  "repository": "https://github.com/FelixJiashengFu/paper-orchestra-studio",
+  "license": "Apache-2.0",
+  "keywords": [
+    "research",
+    "scientific-writing",
+    "latex",
+    "literature",
+    "paper-orchestra",
+    "studio"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json"
+}

@@ -85,6 +85,7 @@ ONLINE_FILE = "citation_online_check.json"
 # Scratch builds go next to the repo, not the system temp folder: the repo may
 # sit on a roomy external disk while the system disk is nearly full.
 SCRATCH_ROOT = os.path.join(REPO_ROOT, ".tmp_submission")
+_CJK_PATTERN = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]")
 
 
 class ToolError(Exception):
@@ -195,6 +196,12 @@ def copy_sources(src: str, dest: str) -> None:
             shutil.copy2(p, target)
 
 
+def _latex_engine_for_source(source: str, xelatex_available: bool) -> str:
+    """Chinese/ctex documents need XeLaTeX; plain English keeps pdfLaTeX."""
+    needs_unicode_engine = bool(_CJK_PATTERN.search(source)) or "ctex" in source.lower()
+    return "xelatex" if needs_unicode_engine and xelatex_available else "pdflatex"
+
+
 def latexmk_build(folder: str, main: str, bibtex: bool = True, timeout: int = BUILD_TIMEOUT,
                   halt: bool = False) -> Dict[str, Any]:
     """Build like the pipeline does (nonstopmode, keep going past errors) unless `halt`.
@@ -203,7 +210,9 @@ def latexmk_build(folder: str, main: str, bibtex: bool = True, timeout: int = BU
     """
     if not which("latexmk"):
         raise ToolError("没找到 latexmk。请安装 MacTeX / TeX Live（Windows 装 MiKTeX 并勾选 Perl）后再试。")
-    cmd = ["latexmk", "-pdf", "-recorder", "-interaction=nonstopmode", "-file-line-error", "-no-shell-escape"]
+    engine = _latex_engine_for_source(read_text(os.path.join(folder, main)), bool(which("xelatex")))
+    pdf_mode = "-pdfxe" if engine == "xelatex" else "-pdf"
+    cmd = ["latexmk", pdf_mode, "-recorder", "-interaction=nonstopmode", "-file-line-error", "-no-shell-escape"]
     cmd.append("-halt-on-error" if halt else "-f")
     if not bibtex:
         cmd.append("-bibtex-")

@@ -1,5 +1,7 @@
 mod artifacts;
 mod commands;
+mod codex_actions;
+mod codex_bridge;
 mod db;
 mod diagnostics;
 mod env_config;
@@ -11,11 +13,25 @@ mod runner;
 mod skills_store;
 mod ssh_hosts;
 
+use std::path::PathBuf;
 use std::sync::Mutex;
 use tauri::Manager;
 
 use db::{init_db, DbState};
 use runner::ActiveRunsState;
+
+pub(crate) fn app_data_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    if let Some(path) = std::env::var_os("PAPER_ORCHESTRA_STUDIO_DATA_DIR") {
+        if !path.is_empty() {
+            let path = PathBuf::from(path);
+            if !path.is_absolute() {
+                return Err("PAPER_ORCHESTRA_STUDIO_DATA_DIR must be absolute.".into());
+            }
+            return Ok(path);
+        }
+    }
+    app.path().app_local_data_dir().map_err(|error| error.to_string())
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -23,10 +39,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
-            let app_data_dir = app
-                .path()
-                .app_local_data_dir()
-                .map_err(|e| format!("Failed to resolve app_local_data_dir: {e}"))?;
+            let app_data_dir = app_data_dir(app.handle())?;
             let db_path = app_data_dir.join("paper_orchestra_studio.db");
             let conn = init_db(&db_path)?;
 
@@ -37,6 +50,9 @@ pub fn run() {
             app.manage(ActiveRunsState::new());
             app.manage(diagnostics::ActiveStudioJobsState::new());
             app.manage(live_edit::LiveCompileState::default());
+            if let Err(error) = codex_bridge::start(app.handle().clone(), &app_data_dir) {
+                eprintln!("PaperOrchestra Codex bridge unavailable: {error}");
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

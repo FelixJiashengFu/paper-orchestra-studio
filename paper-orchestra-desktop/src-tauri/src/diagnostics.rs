@@ -849,7 +849,7 @@ fn tail_excerpt(text: &str) -> String {
 
 /// Masks the free-text fields (`error`, `message`, `detail`) anywhere in the
 /// report; names, labels and model ids are left as they are.
-fn mask_strings(v: &mut Value, secrets: &[String]) {
+pub(crate) fn mask_strings(v: &mut Value, secrets: &[String]) {
     match v {
         Value::Array(items) => items.iter_mut().for_each(|i| mask_strings(i, secrets)),
         Value::Object(map) => {

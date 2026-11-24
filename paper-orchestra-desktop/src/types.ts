@@ -150,6 +150,7 @@ export interface ProjectSummary {
 
 export interface SaveProjectInput {
   id: string;
+  expectedUpdatedAt?: string;
   title: string;
   templateName: string;
   writerModel: string;

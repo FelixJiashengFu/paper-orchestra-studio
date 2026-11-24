@@ -167,6 +167,7 @@ pub struct ProjectSummary {
 #[serde(rename_all = "camelCase")]
 pub struct SaveProjectInput {
     pub id: String,
+    pub expected_updated_at: Option<String>,
     pub title: String,
     pub template_name: String,
     pub writer_model: String,

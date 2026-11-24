@@ -3,7 +3,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use chrono::Utc;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, State};
 use tauri_plugin_opener::OpenerExt;
 use uuid::Uuid;
 
@@ -595,7 +595,8 @@ pub async fn run_data_profile(
         diagnostics::RESEARCH_STUDIO_SCRIPT,
         "数据概况分析",
         &args,
-        Duration::from_secs(60),
+        // Pandas and NumPy may take over a minute to load from an external volume.
+        Duration::from_secs(180),
         &secrets,
     )
     .await
@@ -726,10 +727,7 @@ pub async fn run_custom_skill(
     model: Option<String>,
     job_id: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    let app_data_dir = app
-        .path()
-        .app_local_data_dir()
-        .map_err(|e| format!("Failed to resolve app_local_data_dir: {e}"))?;
+    let app_data_dir = crate::app_data_dir(&app)?;
     let skill = skills_store::resolve_skill_by_id(&app_data_dir, &skill_id)?;
     let (settings, secrets) = load_settings_and_secrets(&state)?;
     let prefs_md = {
@@ -909,10 +907,7 @@ pub fn save_ssh_host(
         .unwrap_or_else(|| Uuid::new_v4().to_string());
 
     let resolved_key_path = if let Some(pem) = input.private_key_pem.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-        let app_data_dir = app
-            .path()
-            .app_local_data_dir()
-            .map_err(|e| format!("Failed to resolve app_local_data_dir: {e}"))?;
+        let app_data_dir = crate::app_data_dir(&app)?;
         ssh_hosts::save_ssh_private_key(&app_data_dir, &id, pem)?
             .to_string_lossy()
             .to_string()
@@ -995,28 +990,19 @@ pub async fn scp_transfer(
 
 #[tauri::command]
 pub fn list_skills(app: AppHandle) -> Result<Vec<SkillEntry>, String> {
-    let app_data_dir = app
-        .path()
-        .app_local_data_dir()
-        .map_err(|e| format!("Failed to resolve app_local_data_dir: {e}"))?;
+    let app_data_dir = crate::app_data_dir(&app)?;
     skills_store::list_skills(&app_data_dir)
 }
 
 #[tauri::command]
 pub fn save_skill(app: AppHandle, input: SaveSkillInput) -> Result<SkillEntry, String> {
-    let app_data_dir = app
-        .path()
-        .app_local_data_dir()
-        .map_err(|e| format!("Failed to resolve app_local_data_dir: {e}"))?;
+    let app_data_dir = crate::app_data_dir(&app)?;
     skills_store::save_skill(&app_data_dir, &input)
 }
 
 #[tauri::command]
 pub fn delete_skill(app: AppHandle, skill_id: String) -> Result<(), String> {
-    let app_data_dir = app
-        .path()
-        .app_local_data_dir()
-        .map_err(|e| format!("Failed to resolve app_local_data_dir: {e}"))?;
+    let app_data_dir = crate::app_data_dir(&app)?;
     skills_store::delete_skill(&app_data_dir, &skill_id)
 }
 
@@ -1028,10 +1014,7 @@ pub fn import_skill_from_file(app: AppHandle, path: String) -> Result<SkillEntry
     }
     let raw = fs::read_to_string(p).map_err(|e| format!("读取技能文件失败：{e}"))?;
     let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("imported-skill");
-    let app_data_dir = app
-        .path()
-        .app_local_data_dir()
-        .map_err(|e| format!("Failed to resolve app_local_data_dir: {e}"))?;
+    let app_data_dir = crate::app_data_dir(&app)?;
     skills_store::save_skill(
         &app_data_dir,
         &SaveSkillInput {
@@ -1071,10 +1054,7 @@ pub async fn import_skill_from_url(
         .ok_or_else(|| "远程响应缺少技能正文内容。".to_string())?
         .to_string();
 
-    let app_data_dir = app
-        .path()
-        .app_local_data_dir()
-        .map_err(|e| format!("Failed to resolve app_local_data_dir: {e}"))?;
+    let app_data_dir = crate::app_data_dir(&app)?;
     skills_store::save_skill(
         &app_data_dir,
         &SaveSkillInput {

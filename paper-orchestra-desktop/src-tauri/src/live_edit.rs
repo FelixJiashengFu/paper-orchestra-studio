@@ -822,8 +822,53 @@ struct CompilePrep {
     main_rel: String,
     outdir: PathBuf,
     stem: String,
+    engine: &'static str,
     pdf_before: Stamp,
     log_before: Stamp,
+}
+
+fn source_needs_unicode_engine(source: &str) -> bool {
+    source.chars().any(|c| {
+        matches!(
+            c,
+            '\u{3400}'..='\u{4dbf}'
+                | '\u{4e00}'..='\u{9fff}'
+                | '\u{3000}'..='\u{303f}'
+                | '\u{ff00}'..='\u{ffef}'
+        )
+    }) || source.to_ascii_lowercase().contains("ctex")
+}
+
+fn latex_engine_for_source(source: &str, xelatex_available: bool) -> &'static str {
+    if source_needs_unicode_engine(source) && xelatex_available {
+        "xelatex"
+    } else {
+        "pdflatex"
+    }
+}
+
+fn program_on_path(program: &str) -> bool {
+    let path = enriched_path_env();
+    #[cfg(target_os = "windows")]
+    {
+        let extensions =
+            std::env::var("PATHEXT").unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".to_string());
+        std::env::split_paths(&path).any(|dir| {
+            extensions
+                .split(';')
+                .filter(|ext| !ext.is_empty())
+                .any(|ext| dir.join(format!("{program}{ext}")).is_file())
+        })
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::env::split_paths(&path).any(|dir| {
+            fs::metadata(dir.join(program))
+                .map(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+                .unwrap_or(false)
+        })
+    }
 }
 
 fn main_tex(ctx: &EditContext, main_file: &str) -> Result<String, String> {
@@ -847,12 +892,17 @@ fn prepare_compile(ctx: &EditContext, main_file: &str) -> Result<CompilePrep, St
         .preview_dir(true)?
         .ok_or_else(|| "无法创建预览文件夹。".to_string())?;
     let stem = stem_of(&main_rel);
+    let source = fs::read(ctx.source_dir.join(&main_rel))
+        .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+        .unwrap_or_default();
+    let engine = latex_engine_for_source(&source, program_on_path("xelatex"));
     Ok(CompilePrep {
         pdf_before: stamp(&outdir.join(format!("{stem}.pdf"))),
         log_before: stamp(&outdir.join(format!("{stem}.log"))),
         main_rel,
         outdir,
         stem,
+        engine,
     })
 }
 
@@ -863,8 +913,13 @@ pub async fn compile_in(ctx: &EditContext, main_file: &str) -> Result<LiveCompil
         let main_file = main_file.to_string();
         blocking(move || prepare_compile(&ctx, &main_file)).await?
     };
+    let pdf_mode = if prep.engine == "xelatex" {
+        "-pdfxe"
+    } else {
+        "-pdf"
+    };
     let args = vec![
-        "-pdf".to_string(),
+        pdf_mode.to_string(),
         "-interaction=nonstopmode".to_string(),
         "-file-line-error".to_string(),
         "-synctex=1".to_string(),
@@ -2279,6 +2334,24 @@ SyncTeX result end
         fs::write(out.join("paper.pdf"), "%PDF new and longer").unwrap();
         let built = ToolRun { stdout: String::new(), stderr: String::new(), timed_out: false };
         assert!(finish_compile(&ctx, &prep, &built, Instant::now()).ok);
+    }
+
+    #[test]
+    fn cjk_sources_use_xelatex_when_available() {
+        let chinese = "\\documentclass{article}\\begin{document}中文\\end{document}";
+        assert_eq!(latex_engine_for_source(chinese, true), "xelatex");
+        assert_eq!(latex_engine_for_source(chinese, false), "pdflatex");
+        assert_eq!(
+            latex_engine_for_source("\\IfFileExists{ctex.sty}{\\usepackage{ctex}}{}", true),
+            "xelatex"
+        );
+        assert_eq!(
+            latex_engine_for_source(
+                "\\documentclass{article}\\begin{document}English\\end{document}",
+                true
+            ),
+            "pdflatex"
+        );
     }
 
     #[test]

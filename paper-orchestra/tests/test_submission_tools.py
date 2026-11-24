@@ -19,6 +19,7 @@ import os
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
 import submission_tools as st  # noqa: E402
@@ -59,6 +60,33 @@ class LogTest(unittest.TestCase):
         self.assertIn("没定义", p["errors"][0]["hint"])
         self.assertEqual(p["undefinedCitations"], ["foo"])
         self.assertEqual(p["missingFiles"], ["nicefrac.sty"])
+
+
+class LatexEngineTest(unittest.TestCase):
+    def _build_mode(self, source: str, xelatex_available: bool) -> str:
+        with tempfile.TemporaryDirectory() as tmp:
+            with open(os.path.join(tmp, "main.tex"), "w", encoding="utf-8") as f:
+                f.write(source)
+
+            def fake_which(tool):
+                if tool == "latexmk":
+                    return "/bin/latexmk"
+                return "/bin/xelatex" if tool == "xelatex" and xelatex_available else None
+
+            with patch.object(st, "which", side_effect=fake_which), patch.object(
+                st, "run", return_value=(0, "", False)
+            ) as run:
+                st.latexmk_build(tmp, "main.tex")
+            return run.call_args.args[0][1]
+
+    def test_chinese_source_uses_xelatex_when_available(self):
+        source = "\\documentclass{article}\\begin{document}中文\\end{document}"
+        self.assertEqual(self._build_mode(source, True), "-pdfxe")
+        self.assertEqual(self._build_mode(source, False), "-pdf")
+
+    def test_english_source_keeps_pdflatex(self):
+        source = "\\documentclass{article}\\begin{document}English\\end{document}"
+        self.assertEqual(self._build_mode(source, True), "-pdf")
 
 
 class SurnameTest(unittest.TestCase):

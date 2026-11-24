@@ -20,6 +20,8 @@ import rich
 import traceback
 import subprocess
 import os.path as osp
+import locale
+import re
 
 import pymupdf4llm  # type: ignore
 import pymupdf  # type: ignore
@@ -166,6 +168,36 @@ def get_paper_references_from_pdf(
     return None
 
 
+_CJK_PATTERN = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]")
+
+
+def _decode_subprocess_output(output) -> str:
+    """Decode TeX logs without assuming every Windows tool emits UTF-8."""
+    if output is None:
+        return ""
+    if isinstance(output, str):
+        return output
+    encodings = ("utf-8", locale.getpreferredencoding(False), "gbk")
+    for encoding in encodings:
+        try:
+            return output.decode(encoding)
+        except (UnicodeDecodeError, LookupError):
+            continue
+    return output.decode("utf-8", errors="replace")
+
+
+def _latex_engine_for_source(tex_path: str) -> str:
+    """Use XeLaTeX for CJK manuscripts when the ctex-capable engine exists."""
+    try:
+        with open(tex_path, "r", encoding="utf-8-sig", errors="replace") as f:
+            source = f.read()
+    except OSError:
+        return "pdflatex"
+    if _CJK_PATTERN.search(source) and shutil.which("xelatex"):
+        return "xelatex"
+    return "pdflatex"
+
+
 def compile_latex(cwd, pdf_file, texfile_name="template", timeout=30):
     import os, shutil, subprocess, traceback, rich
 
@@ -177,11 +209,12 @@ def compile_latex(cwd, pdf_file, texfile_name="template", timeout=30):
     for var in ["TEXINPUTS", "TEXMFHOME", "TEXMF", "TEXMFVAR", "TEXMFCONFIG"]:
         env.pop(var, None)
 
+    latex_engine = _latex_engine_for_source(os.path.join(cwd, f"{texfile_name}.tex"))
     commands = [
-        ["pdflatex", "-interaction=nonstopmode", f"{texfile_name}.tex"],
+        [latex_engine, "-interaction=nonstopmode", f"{texfile_name}.tex"],
         ["bibtex", texfile_name],
-        ["pdflatex", "-interaction=nonstopmode", f"{texfile_name}.tex"],
-        ["pdflatex", "-interaction=nonstopmode", f"{texfile_name}.tex"],
+        [latex_engine, "-interaction=nonstopmode", f"{texfile_name}.tex"],
+        [latex_engine, "-interaction=nonstopmode", f"{texfile_name}.tex"],
     ]
 
     execution_logs = []
@@ -193,7 +226,6 @@ def compile_latex(cwd, pdf_file, texfile_name="template", timeout=30):
                 command,
                 cwd=cwd,
                 capture_output=True,  # Captures stdout/stderr silently
-                text=True,
                 timeout=timeout,
                 env=env,
             )
@@ -202,8 +234,8 @@ def compile_latex(cwd, pdf_file, texfile_name="template", timeout=30):
                 {
                     "cmd": cmd_str,
                     "returncode": result.returncode,
-                    "stdout": result.stdout,
-                    "stderr": result.stderr,
+                    "stdout": _decode_subprocess_output(result.stdout),
+                    "stderr": _decode_subprocess_output(result.stderr),
                 }
             )
 
@@ -244,10 +276,12 @@ def compile_latex(cwd, pdf_file, texfile_name="template", timeout=30):
             if "error" in log:
                 rich.print(f"[bold red]SYSTEM ERROR: {log['error']}[/bold red]")
             else:
-                if log["stdout"].strip():
-                    rich.print(f"[dim]{log['stdout'].strip()}[/dim]")
-                if log["stderr"].strip():
-                    rich.print(f"[red]{log['stderr'].strip()}[/red]")
+                stdout = (log.get("stdout") or "").strip()
+                stderr = (log.get("stderr") or "").strip()
+                if stdout:
+                    rich.print(f"[dim]{stdout}[/dim]")
+                if stderr:
+                    rich.print(f"[red]{stderr}[/red]")
 
 
 def pdf_to_grid_images(pdf_path, output_dir, scale=2.0):

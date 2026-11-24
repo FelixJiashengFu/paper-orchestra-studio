@@ -9,6 +9,7 @@ import {
   Square,
   X,
 } from "lucide-react";
+import { listen } from "@tauri-apps/api/event";
 import { downloadDir, join } from "@tauri-apps/api/path";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api";
@@ -64,10 +65,12 @@ export function App() {
   const selectedRunIdRef = useRef<string | null>(null);
   const saveTimerRef = useRef<number | null>(null);
   const latestProjectRef = useRef<Project | null>(null);
+  const saveStateRef = useRef(saveState);
 
   selectedProjectIdRef.current = selectedProjectId;
   selectedRunIdRef.current = selectedRunId;
   latestProjectRef.current = project;
+  saveStateRef.current = saveState;
 
   const showToast = useCallback((msg: string, isError = false) => {
     setToast({ msg, isError });
@@ -141,6 +144,29 @@ export function App() {
     refreshEnv();
     refreshProjects();
   }, [refreshEnv, refreshProjects]);
+
+  useEffect(() => {
+    const view = listen<NavTab>("paper-orchestra-show-view", ({ payload }) => {
+      if (Object.prototype.hasOwnProperty.call(VIEW_LABELS, payload)) {
+        setActiveTab(payload);
+        void refreshProjects().catch((error) => showToast(String(error), true));
+      }
+    });
+    const updated = listen<string>("paper-orchestra-project-updated", async ({ payload: id }) => {
+      try {
+        await refreshProjects();
+        if (id !== selectedProjectIdRef.current || saveStateRef.current !== "saved") return;
+        const current = await api.getProject(id);
+        if (id === selectedProjectIdRef.current && saveStateRef.current === "saved") setProject(current);
+      } catch (error) {
+        showToast(String(error), true);
+      }
+    });
+    return () => {
+      void view.then((unlisten) => unlisten()).catch(() => {});
+      void updated.then((unlisten) => unlisten()).catch(() => {});
+    };
+  }, [refreshProjects, showToast]);
 
   // Load selected project details & runs
   useEffect(() => {
@@ -254,6 +280,7 @@ export function App() {
       try {
         const saved = await api.saveProject({
           id: target.id,
+          expectedUpdatedAt: target.updatedAt,
           title: target.title,
           templateName: target.templateName,
           writerModel: target.writerModel,
@@ -280,7 +307,12 @@ export function App() {
               : p
           )
         );
-        setSaveState("saved");
+        setProject((current) =>
+          current?.id === saved.id && current.updatedAt === target.updatedAt
+            ? { ...current, updatedAt: saved.updatedAt }
+            : current
+        );
+        if (latestProjectRef.current === target) setSaveState("saved");
         return saved;
       } catch (e) {
         setSaveState("dirty");
@@ -316,7 +348,7 @@ export function App() {
       window.clearTimeout(saveTimerRef.current);
       saveTimerRef.current = null;
     }
-    if (latestProjectRef.current) {
+    if (latestProjectRef.current && saveStateRef.current !== "saved") {
       await persistProject(latestProjectRef.current);
     }
   }

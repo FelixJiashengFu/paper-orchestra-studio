@@ -1,0 +1,1209 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="description" content="PaperOrchestra Studio 本地实时工作台：监控运行、查看日志与产物，并安全地干预论文、文献、图稿、LaTeX 和导出流程。">
+  <link rel="icon" href="data:,">
+  <title>PaperOrchestra · 实时论文工作台</title>
+  <style>
+    :root {
+      --bg: #f2f3ee;
+      --surface: #fffefa;
+      --surface-2: #f7f8f3;
+      --ink: #1d2b25;
+      --muted: #58635c;
+      --line: #d7ddd5;
+      --green: #2f6b57;
+      --green-dark: #203e33;
+      --green-soft: #e7f0ea;
+      --amber: #8a5917;
+      --amber-soft: #faf0dc;
+      --red: #9b3f34;
+      --red-soft: #f8e8e4;
+      --blue: #356b85;
+      --blue-soft: #e6f0f5;
+      --shadow: 0 10px 30px rgba(29, 43, 37, .07);
+      --radius: 12px;
+      --sans: Inter, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+      --mono: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body { margin: 0; color: var(--ink); background: var(--bg); font-family: var(--sans); font-size: 14px; line-height: 1.6; }
+    button, input, textarea, select { font: inherit; }
+    button { cursor: pointer; }
+    button:disabled { cursor: not-allowed; opacity: .55; }
+    a { color: var(--green); }
+    [hidden] { display: none !important; }
+    :focus-visible { outline: 3px solid rgba(47, 107, 87, .28); outline-offset: 2px; }
+    .app { display: grid; grid-template-columns: 236px minmax(0, 1fr); min-height: 100vh; }
+    .sidebar { position: sticky; top: 0; height: 100vh; min-width: 0; display: flex; flex-direction: column; padding: 22px 14px; color: #f4f7f3; background: var(--green-dark); }
+    .brand { display: flex; align-items: center; gap: 11px; padding: 0 10px 22px; }
+    .brand-mark { display: grid; place-items: center; width: 38px; height: 38px; border: 1px solid rgba(255,255,255,.22); border-radius: 10px; background: rgba(255,255,255,.08); font-family: var(--mono); font-weight: 800; }
+    .brand strong { display: block; font-size: 14px; letter-spacing: -.01em; }
+    .brand span { display: block; color: #b8c9bf; font-size: 12px; }
+    .nav { display: grid; gap: 5px; min-width: 0; max-width: 100%; }
+    .nav-button { display: flex; align-items: center; gap: 11px; width: 100%; min-height: 42px; padding: 9px 12px; color: #d7e2db; background: transparent; border: 0; border-radius: 8px; text-align: left; }
+    .nav-button:hover { color: #fff; background: rgba(255,255,255,.07); }
+    .nav-button.active { color: #fff; background: rgba(255,255,255,.13); box-shadow: inset 3px 0 #9fc7b2; }
+    .nav-icon { display: grid; place-items: center; width: 20px; height: 20px; color: #a9c2b4; }
+    .nav-icon svg { width: 18px; height: 18px; }
+    .nav-count { margin-left: auto; min-width: 22px; padding: 1px 6px; color: #c8d8ce; background: rgba(255,255,255,.09); border-radius: 999px; font-size: 12px; text-align: center; }
+    .sidebar-foot { margin-top: auto; padding: 16px 10px 4px; color: #a9bdb2; font-size: 12px; }
+    .sidebar-foot strong { display: block; margin-bottom: 4px; color: #d7e2db; font-weight: 650; }
+    .main { min-width: 0; }
+    .topbar { position: sticky; top: 0; z-index: 30; display: flex; align-items: center; justify-content: space-between; gap: 16px; min-width: 0; min-height: 66px; padding: 12px 26px; background: rgba(242,243,238,.94); border-bottom: 1px solid var(--line); backdrop-filter: blur(12px); }
+    .topbar-title { min-width: 0; }
+    .topbar-title strong { display: block; overflow: hidden; font-size: 15px; text-overflow: ellipsis; white-space: nowrap; }
+    .topbar-title span { display: block; color: var(--muted); font-size: 12px; }
+    .topbar-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: end; gap: 8px; }
+    .connection { display: inline-flex; align-items: center; gap: 7px; padding: 5px 10px; color: var(--green); background: var(--green-soft); border: 1px solid #c7dbcf; border-radius: 999px; font-size: 12px; font-weight: 700; }
+    .connection.offline { color: var(--red); background: var(--red-soft); border-color: #e7c6bf; }
+    .connection-dot { width: 7px; height: 7px; background: currentColor; border-radius: 50%; }
+    .btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 36px; padding: 7px 12px; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 7px; font-size: 12px; font-weight: 650; text-decoration: none; }
+    .btn:hover { background: var(--surface-2); border-color: #bfc8c0; }
+    .btn.primary { color: #fff; background: var(--green); border-color: var(--green); }
+    .btn.primary:hover { background: #265b49; }
+    .btn.danger { color: var(--red); background: var(--red-soft); border-color: #e7c6bf; }
+    .btn.ghost { background: transparent; }
+    .btn.small { min-height: 30px; padding: 4px 9px; font-size: 12px; }
+    .content { width: min(1500px, 100%); min-width: 0; padding: 26px; }
+    .view { display: grid; gap: 20px; min-width: 0; }
+    .view > * { min-width: 0; }
+    .page-heading { display: flex; align-items: end; justify-content: space-between; gap: 18px; min-width: 0; }
+    .page-heading > * { min-width: 0; }
+    .page-heading h1 { margin: 0; font-size: 25px; letter-spacing: -.03em; }
+    .page-heading h2 { margin: 0; font-size: 21px; letter-spacing: -.025em; }
+    .page-heading p { max-width: 760px; margin: 6px 0 0; color: var(--muted); font-size: 13px; }
+    .eyebrow { margin-bottom: 5px; color: var(--green); font-family: var(--mono); font-size: 12px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+    .grid { display: grid; gap: 16px; }
+    .grid > * { min-width: 0; }
+    .grid.cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid.cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .grid.cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .grid.main-side { grid-template-columns: minmax(0, 1.55fr) minmax(320px, .85fr); }
+    .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
+    .card.pad { padding: 20px; }
+    .card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 18px; border-bottom: 1px solid var(--line); }
+    .card-head h3 { margin: 0; font-size: 14px; }
+    .card-head p { margin: 3px 0 0; color: var(--muted); font-size: 12px; }
+    .card-body { padding: 18px; }
+    .stat { padding: 16px 18px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
+    .stat-label { color: var(--muted); font-size: 12px; }
+    .stat-value { display: block; margin-top: 4px; font-size: 28px; font-weight: 780; line-height: 1.1; letter-spacing: -.04em; }
+    .stat-note { display: block; margin-top: 6px; color: var(--muted); font-size: 12px; }
+    .pill { display: inline-flex; align-items: center; gap: 5px; padding: 3px 8px; border-radius: 999px; font-size: 12px; font-weight: 750; white-space: nowrap; }
+    .pill.success { color: var(--green); background: var(--green-soft); }
+    .pill.info { color: var(--blue); background: var(--blue-soft); }
+    .pill.warning { color: var(--amber); background: var(--amber-soft); }
+    .pill.danger { color: var(--red); background: var(--red-soft); }
+    .pill.neutral { color: var(--muted); background: #eef0eb; }
+    .callout { display: flex; gap: 12px; min-width: 0; padding: 14px 16px; border: 1px solid #c7dbcf; border-radius: 9px; background: var(--green-soft); }
+    .callout > div { min-width: 0; }
+    .callout.warning { background: var(--amber-soft); border-color: #ead4aa; }
+    .callout.danger { background: var(--red-soft); border-color: #e7c6bf; }
+    .callout-mark { flex: 0 0 auto; display: grid; place-items: center; width: 24px; height: 24px; color: var(--green); background: rgba(255,255,255,.6); border-radius: 50%; font-weight: 800; }
+    .callout.warning .callout-mark { color: var(--amber); }
+    .callout.danger .callout-mark { color: var(--red); }
+    .callout strong { display: block; margin-bottom: 2px; font-size: 12px; }
+    .callout p { margin: 0; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+    .run-hero { position: relative; overflow: hidden; padding: 24px; color: #f5f8f4; background: var(--green-dark); border-radius: var(--radius); }
+    .run-hero::after { content: ""; position: absolute; top: -80px; right: -60px; width: 240px; height: 240px; border: 1px solid rgba(255,255,255,.09); border-radius: 50%; }
+    .run-hero .eyebrow { position: relative; z-index: 1; color: #a8c8b7; }
+    .run-hero h2 { position: relative; z-index: 1; max-width: 900px; margin: 5px 0 8px; font-size: 23px; line-height: 1.35; letter-spacing: -.02em; }
+    .run-hero p { position: relative; z-index: 1; max-width: 850px; margin: 0; color: #c4d4ca; font-size: 12px; overflow-wrap: anywhere; }
+    .run-meta { position: relative; z-index: 1; display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+    .run-meta .pill { max-width: 100%; color: #e7f0ea; background: rgba(255,255,255,.1); }
+    .run-meta .pill.mono { white-space: normal; overflow-wrap: anywhere; }
+    .stage-track { position: relative; z-index: 1; display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 6px; margin-top: 22px; }
+    .stage { position: relative; padding-top: 15px; color: #91aa9b; font-size: 12px; text-align: center; }
+    .stage::before { content: ""; position: absolute; top: 4px; left: 0; right: 0; height: 3px; background: rgba(255,255,255,.13); border-radius: 999px; }
+    .stage.done::before, .stage.current::before { background: #9fc7b2; }
+    .stage.current { color: #fff; font-weight: 750; }
+    .stage.current::after { content: ""; position: absolute; top: 1px; left: calc(50% - 5px); width: 9px; height: 9px; background: #fff; border: 2px solid #9fc7b2; border-radius: 50%; }
+    .intervention-bar { display: flex; flex-wrap: wrap; gap: 8px; padding: 14px 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
+    .intervention-bar .label { display: flex; align-items: center; margin-right: auto; color: var(--muted); font-size: 12px; font-weight: 700; }
+    .log-list { display: grid; max-height: 440px; overflow: auto; }
+    .log-row { display: grid; grid-template-columns: 78px 92px minmax(0, 1fr); gap: 10px; padding: 8px 0; border-bottom: 1px solid #ecefe8; font-size: 12px; }
+    .log-row:last-child { border-bottom: 0; }
+    .log-time { color: var(--muted); font-family: var(--mono); font-size: 12px; }
+    .log-stage { color: var(--green); font-family: var(--mono); font-size: 12px; }
+    .log-line { min-width: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+    .log-row.warning .log-line { color: var(--amber); }
+    .log-row.error .log-line { color: var(--red); }
+    .table-wrap { overflow: auto; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 11px 12px; border-bottom: 1px solid #e7ebe4; text-align: left; vertical-align: top; }
+    th { color: var(--muted); background: var(--surface-2); font-size: 12px; font-weight: 750; letter-spacing: .03em; white-space: nowrap; }
+    td { font-size: 12px; }
+    tr:last-child td { border-bottom: 0; }
+    .row-title { display: block; max-width: 520px; font-weight: 650; line-height: 1.45; }
+    .row-sub { display: block; margin-top: 3px; color: var(--muted); font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; }
+    .toolbar { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; }
+    .field { display: grid; gap: 5px; min-width: 0; }
+    .field.grow { flex: 1 1 240px; }
+    .field label { color: var(--muted); font-size: 12px; font-weight: 700; }
+    .input, .textarea, .select { width: 100%; min-height: 38px; padding: 8px 10px; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 7px; }
+    .textarea { min-height: 110px; resize: vertical; font-family: var(--mono); font-size: 12px; line-height: 1.55; }
+    .input:focus, .textarea:focus, .select:focus { border-color: var(--green); outline: none; box-shadow: 0 0 0 3px rgba(47,107,87,.12); }
+    .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .form-grid .span-2 { grid-column: 1 / -1; }
+    .empty { display: grid; place-items: center; min-height: 150px; padding: 24px; color: var(--muted); text-align: center; }
+    .empty strong { display: block; margin-bottom: 4px; color: var(--ink); }
+    .list { display: grid; gap: 10px; }
+    .list-item { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 13px 14px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 9px; }
+    .list-item strong { display: block; font-size: 12px; }
+    .list-item span { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; }
+    .split-editor { display: grid; grid-template-columns: 220px minmax(0, 1fr); min-height: 480px; }
+    .file-list { display: grid; align-content: start; gap: 5px; padding: 12px; background: var(--surface-2); border-right: 1px solid var(--line); }
+    .file-button { width: 100%; padding: 8px 10px; color: var(--muted); background: transparent; border: 1px solid transparent; border-radius: 6px; font-family: var(--mono); font-size: 12px; text-align: left; overflow-wrap: anywhere; }
+    .file-button:hover { background: var(--surface); }
+    .file-button.active { color: var(--green); background: var(--surface); border-color: #c7dbcf; }
+    .editor { display: grid; grid-template-rows: auto minmax(360px, 1fr) auto; min-width: 0; }
+    .editor-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+    .editor textarea { width: 100%; min-height: 420px; padding: 16px; color: var(--ink); background: var(--surface); border: 0; outline: none; font-family: var(--mono); font-size: 12px; line-height: 1.6; resize: vertical; }
+    .editor-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 14px; border-top: 1px solid var(--line); }
+    .mono { font-family: var(--mono); overflow-wrap: anywhere; }
+    .muted { color: var(--muted); }
+    .small { font-size: 12px; }
+    .result-output { max-height: 420px; margin: 0; padding: 14px; overflow: auto; color: var(--ink); background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px; font-family: var(--mono); font-size: 12px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .tool-search { max-width: 460px; }
+    .tool-catalogue { display: grid; gap: 8px; max-height: 640px; overflow: auto; padding-right: 4px; }
+    .tool-entry { display: grid; grid-template-columns: minmax(180px, .7fr) minmax(0, 1.3fr) auto; gap: 12px; align-items: start; padding: 12px 14px; background: var(--surface); border: 1px solid var(--line); border-radius: 9px; }
+    .tool-entry-name { font-family: var(--mono); font-size: 12px; font-weight: 750; overflow-wrap: anywhere; }
+    .tool-entry-desc { color: var(--muted); font-size: 12px; }
+    .tool-badges { display: flex; flex-wrap: wrap; justify-content: end; gap: 4px; }
+    dialog { width: min(680px, calc(100vw - 32px)); max-height: calc(100vh - 48px); padding: 0; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 24px 80px rgba(20,35,28,.22); }
+    dialog::backdrop { background: rgba(20,35,28,.42); backdrop-filter: blur(3px); }
+    .dialog-head { display: flex; align-items: start; justify-content: space-between; gap: 16px; padding: 20px 22px 14px; border-bottom: 1px solid var(--line); }
+    .dialog-head h2 { margin: 0; font-size: 18px; }
+    .dialog-head p { margin: 5px 0 0; color: var(--muted); font-size: 12px; }
+    .dialog-body { display: grid; gap: 14px; max-height: calc(100vh - 250px); overflow: auto; padding: 18px 22px; }
+    .dialog-foot { display: flex; flex-wrap: wrap; justify-content: end; gap: 8px; padding: 14px 22px; border-top: 1px solid var(--line); }
+    .icon-btn { display: grid; place-items: center; width: 32px; height: 32px; color: var(--muted); background: transparent; border: 1px solid var(--line); border-radius: 7px; font-size: 18px; }
+    .toast-stack { position: fixed; right: 20px; bottom: 20px; z-index: 100; display: grid; gap: 8px; width: min(380px, calc(100vw - 40px)); }
+    .toast { padding: 12px 14px; color: #f5f8f4; background: var(--green-dark); border: 1px solid rgba(255,255,255,.12); border-radius: 9px; box-shadow: var(--shadow); font-size: 12px; overflow-wrap: anywhere; }
+    .toast.error { background: var(--red); }
+    .pairing { display: grid; place-items: center; min-height: 100vh; padding: 24px; background: var(--bg); }
+    .pairing-card { width: min(520px, 100%); padding: 28px; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); }
+    .pairing-card h1 { margin: 0 0 8px; font-size: 24px; }
+    .pairing-card p { margin: 0 0 18px; color: var(--muted); font-size: 13px; }
+    .pairing-card code { padding: 2px 5px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 4px; }
+    @media (max-width: 1100px) {
+      .grid.main-side { grid-template-columns: 1fr; }
+      .grid.cols-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .stage-track { grid-template-columns: repeat(4, minmax(0, 1fr)); row-gap: 14px; }
+    }
+    @media (max-width: 860px) {
+      .app { grid-template-columns: minmax(0, 1fr); }
+      .sidebar { position: static; height: auto; overflow: hidden; padding: 12px; }
+      .brand { padding: 2px 8px 12px; }
+      .nav { display: flex; overflow: auto; padding-bottom: 2px; }
+      .nav-button { flex: 0 0 auto; width: auto; min-height: 36px; padding: 7px 10px; }
+      .nav-count { display: none; }
+      .sidebar-foot { display: none; }
+      .topbar { position: static; padding: 12px 16px; }
+      .content { padding: 18px 16px 28px; }
+      .grid.cols-2, .grid.cols-3 { grid-template-columns: 1fr; }
+      .split-editor { grid-template-columns: 1fr; }
+      .file-list { grid-auto-flow: column; grid-auto-columns: minmax(150px, 1fr); overflow: auto; border-right: 0; border-bottom: 1px solid var(--line); }
+    }
+    @media (max-width: 560px) {
+      .topbar { align-items: start; }
+      .topbar-actions { max-width: 190px; }
+      .page-heading { align-items: start; flex-direction: column; }
+      .grid.cols-4 { grid-template-columns: 1fr 1fr; }
+      .form-grid { grid-template-columns: 1fr; }
+      .form-grid .span-2 { grid-column: auto; }
+      .run-hero { padding: 20px; }
+      .run-hero h2 { font-size: 20px; }
+      .toast-stack { left: 16px; right: 16px; width: auto; }
+      .log-row { grid-template-columns: 64px minmax(0, 1fr); }
+      .log-stage { display: none; }
+      .tool-entry { grid-template-columns: 1fr; }
+      .tool-badges { justify-content: start; }
+      .intervention-bar .label { flex-basis: 100%; }
+    }
+    @media print {
+      .sidebar, .topbar-actions, .intervention-bar, .toast-stack { display: none !important; }
+      .app { display: block; }
+      .content { padding: 0; }
+      .card, .run-hero { box-shadow: none; break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+  <section class="pairing" id="pairing" hidden>
+    <div class="pairing-card">
+      <div class="eyebrow">LOCAL SECURE PAIRING</div>
+      <h1>连接实时论文工作台</h1>
+      <p>请通过 <code>start-panel.cmd</code> 打开带密钥的地址。如果浏览器没有自动配对，可以把启动窗口里 <code>#key=</code> 后面的密钥粘贴到这里。</p>
+      <form id="pair-form">
+        <div class="field" style="margin-bottom:14px">
+          <label for="pair-key">面板配对密钥</label>
+          <input class="input mono" id="pair-key" type="text" autocomplete="off" spellcheck="false" required>
+        </div>
+        <button class="btn primary" type="submit">安全配对</button>
+      </form>
+      <p class="small" style="margin-top:16px">服务只监听 127.0.0.1；写操作需要页面确认，破坏性操作还需要输入工具名。</p>
+    </div>
+  </section>
+
+  <div class="app" id="app" hidden>
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">PO</div>
+        <div><strong>PaperOrchestra</strong><span>实时论文工作台</span></div>
+      </div>
+      <nav class="nav" aria-label="工作台导航">
+        <button class="nav-button active" data-tab="overview"><span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 13h8V3H3zM13 21h8V11h-8zM13 3v6M3 15v6M17 17h2"/></svg></span>总览</button>
+        <button class="nav-button" data-tab="projects"><span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 7h7l2 2h9v11H3zM3 7V4h7l2 3"/></svg></span>项目<span class="nav-count" id="nav-projects">0</span></button>
+        <button class="nav-button" data-tab="runs"><span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 5h16v14H4zM8 9h8M8 13h5"/></svg></span>运行<span class="nav-count" id="nav-runs">0</span></button>
+        <button class="nav-button" data-tab="library"><span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 4h6v16H4zM14 4h6v16h-6zM6 8h2M6 12h2M16 8h2M16 12h2"/></svg></span>文献</button>
+        <button class="nav-button" data-tab="figures"><span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 19V5M4 19h16M7 15l4-5 3 3 5-7"/></svg></span>图稿</button>
+        <button class="nav-button" data-tab="latex"><span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m8 6-6 6 6 6M16 6l6 6-6 6M14 4l-4 16"/></svg></span>LaTeX</button>
+        <button class="nav-button" data-tab="exports"><span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 16v5h16v-5"/></svg></span>导出</button>
+        <button class="nav-button" data-tab="skills"><span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3l2.5 5.5L20 10l-4 4 .8 6-4.8-2.7L7.2 20 8 14 4 10l5.5-1.5z"/></svg></span>技能与偏好</button>
+        <button class="nav-button" data-tab="tools"><span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 6a4 4 0 1 0-4 4L4 16a3 3 0 0 0 4 4l6-6a4 4 0 0 0 4-4z"/></svg></span>71 工具控制台</button>
+      </nav>
+      <div class="sidebar-foot"><strong>安全边界</strong>密钥留在 Studio。本面板只监听本机，所有写操作都需要确认。</div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div class="topbar-title"><strong id="topbar-title">实时总览</strong><span id="last-updated">等待 Studio 数据…</span></div>
+        <div class="topbar-actions">
+          <span class="connection" id="connection"><span class="connection-dot"></span><span id="connection-text">连接中</span></span>
+          <button class="btn small" id="refresh-button" type="button">刷新</button>
+          <button class="btn small primary" id="open-studio-button" type="button">打开 Studio</button>
+        </div>
+      </header>
+      <div class="content" id="content"></div>
+    </main>
+  </div>
+
+  <dialog id="action-dialog" aria-labelledby="action-title">
+    <form id="action-form">
+      <div class="dialog-head">
+        <div><h2 id="action-title">确认操作</h2><p id="action-description"></p></div>
+        <button class="icon-btn" id="action-close" type="button" aria-label="关闭">×</button>
+      </div>
+      <div class="dialog-body" id="action-body"></div>
+      <div class="dialog-foot">
+        <button class="btn" id="action-cancel" type="button">取消</button>
+        <button class="btn primary" id="action-submit" type="submit">确认执行</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="tool-dialog" aria-labelledby="tool-dialog-title">
+    <form id="tool-form">
+      <div class="dialog-head">
+        <div><h2 id="tool-dialog-title">工具参数</h2><p id="tool-dialog-description"></p></div>
+        <button class="icon-btn" id="tool-close" type="button" aria-label="关闭">×</button>
+      </div>
+      <div class="dialog-body">
+        <div class="field"><label for="tool-json">JSON 参数</label><textarea class="textarea" id="tool-json" rows="14" spellcheck="false"></textarea></div>
+        <div class="callout"><span class="callout-mark">i</span><p id="tool-schema-hint"></p></div>
+      </div>
+      <div class="dialog-foot">
+        <button class="btn" id="tool-cancel" type="button">取消</button>
+        <button class="btn primary" type="submit">校验并执行</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="result-dialog" aria-labelledby="result-title">
+    <div class="dialog-head"><div><h2 id="result-title">工具结果</h2><p>结果来自本机 PaperOrchestra Studio，未做额外改写。</p></div><button class="icon-btn" id="result-close" type="button" aria-label="关闭">×</button></div>
+    <div class="dialog-body"><pre class="result-output" id="result-output"></pre></div>
+    <div class="dialog-foot"><button class="btn" id="result-copy" type="button">复制结果</button><button class="btn primary" id="result-done" type="button">完成</button></div>
+  </dialog>
+
+  <div class="toast-stack" id="toast-stack" aria-live="polite"></div>
+
+  <script>
+    const $ = (selector, root = document) => root.querySelector(selector);
+    const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
+    const state = {
+      token: sessionStorage.getItem("po_panel_token") || "",
+      snapshot: null,
+      tab: "overview",
+      selectedProjectId: null,
+      selectedRunId: null,
+      projectDetail: null,
+      runDetail: null,
+      library: { items: [], total: 0 },
+      libraryResults: [],
+      doiResult: null,
+      figures: null,
+      skills: [],
+      preferences: {},
+      latex: null,
+      latexFile: null,
+      latexContent: "",
+      latexMtime: 0,
+      catalogue: [],
+      toolQuery: "",
+      pendingAction: null,
+      activeTool: null,
+      eventSource: null,
+      jobTimers: new Map()
+    };
+
+    const tabTitles = {
+      overview: "实时总览", projects: "项目与研究材料", runs: "写作运行", library: "文献库与引用",
+      figures: "科学图稿", latex: "LaTeX 协同编辑", exports: "文档导出", skills: "技能与研究偏好", tools: "71 工具控制台"
+    };
+
+    function escapeHtml(value) {
+      return String(value ?? "").replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[char]));
+    }
+
+    function formatDate(value) {
+      if (!value) return "—";
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return String(value);
+      return new Intl.DateTimeFormat("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }).format(date);
+    }
+
+    function formatTime(value) {
+      if (!value) return "—";
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return String(value);
+      return new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }).format(date);
+    }
+
+    function statusPill(status) {
+      const map = {
+        running: ["info", "运行中"], succeeded: ["success", "已完成"], completed: ["success", "已完成"],
+        failed: ["danger", "失败"], stopped: ["warning", "已停止"], cancelled: ["warning", "已取消"], queued: ["neutral", "排队中"]
+      };
+      const [tone, label] = map[status] || ["neutral", status || "未知"];
+      return `<span class="pill ${tone}">${escapeHtml(label)}</span>`;
+    }
+
+    function stageLabel(stage) {
+      const map = { outline: "提纲", literature: "文献", writing: "写作", review: "审阅", reflection: "反思", refinement: "精修", format: "格式", compile: "编译", completed: "完成", submission: "投稿" };
+      return map[stage] || stage || "待开始";
+    }
+
+    function projectTitle(projectId) {
+      return state.snapshot?.projects?.find(project => project.id === projectId)?.title || projectId || "未知项目";
+    }
+
+    function toast(message, error = false) {
+      const node = document.createElement("div");
+      node.className = `toast${error ? " error" : ""}`;
+      node.textContent = message;
+      $("#toast-stack").append(node);
+      setTimeout(() => node.remove(), error ? 8000 : 4500);
+    }
+
+    async function api(path, options = {}) {
+      const headers = { ...(options.headers || {}) };
+      if (options.body && typeof options.body === "object") {
+        headers["Content-Type"] = "application/json";
+        options.body = JSON.stringify(options.body);
+      }
+      if (options.method && options.method !== "GET") headers["X-Panel-Token"] = state.token;
+      const response = await fetch(path, { ...options, headers, credentials: "same-origin" });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || `请求失败（${response.status}）`);
+      return data;
+    }
+
+    async function pair(token) {
+      const result = await api("/api/pair", { method: "POST", body: { token } });
+      if (!result.ok) throw new Error("配对失败");
+      state.token = token;
+      sessionStorage.setItem("po_panel_token", token);
+      $("#pairing").hidden = true;
+      $("#app").hidden = false;
+      connectEvents();
+      await refreshSnapshot();
+      state.selectedRunId = state.snapshot.selectedRun?.id || null;
+      await loadCatalogue();
+      render();
+    }
+
+    function connectEvents() {
+      state.eventSource?.close();
+      const events = new EventSource("/api/events");
+      state.eventSource = events;
+      events.addEventListener("snapshot", event => {
+        state.snapshot = JSON.parse(event.data);
+        if (!state.selectedRunId && state.snapshot.selectedRun) state.selectedRunId = state.snapshot.selectedRun.id;
+        const liveRun = state.snapshot.selectedRun;
+        if (state.runDetail && liveRun && state.runDetail.id === liveRun.id) {
+          state.runDetail = { ...state.runDetail, ...liveRun, logs: state.snapshot.logs || [], artifacts: state.snapshot.artifacts };
+        }
+        updateChrome();
+        if (["overview", "runs"].includes(state.tab)) render();
+      });
+      events.addEventListener("open", () => { $("#connection-text").textContent = state.snapshot?.status?.connected ? "Studio 已连接 · 实时" : "实时更新已连接"; });
+      events.addEventListener("error", () => { $("#connection-text").textContent = "Studio 状态未知 · 实时更新中断"; });
+    }
+
+    async function refreshSnapshot() {
+      try {
+        state.snapshot = await api("/api/snapshot");
+        updateChrome();
+        render();
+      } catch (error) {
+        toast(error.message, true);
+      }
+    }
+
+    async function loadCatalogue() {
+      if (state.catalogue.length) return;
+      state.catalogue = await api("/api/catalogue");
+    }
+
+    function updateChrome() {
+      const snapshot = state.snapshot;
+      if (!snapshot) return;
+      const connected = snapshot.status?.connected;
+      $("#connection").classList.toggle("offline", !connected);
+      $("#connection-text").textContent = connected ? "Studio 已连接" : "Studio 未连接";
+      $("#last-updated").textContent = `更新于 ${formatDate(snapshot.generatedAt)}`;
+      $("#nav-projects").textContent = snapshot.projects?.length || 0;
+      $("#nav-runs").textContent = snapshot.runs?.filter(run => run.status === "running").length || 0;
+      document.title = `${tabTitles[state.tab]} · PaperOrchestra`;
+    }
+
+    function setTab(tab) {
+      state.tab = tab;
+      $$(".nav-button").forEach(button => button.classList.toggle("active", button.dataset.tab === tab));
+      $("#topbar-title").textContent = tabTitles[tab];
+      updateChrome();
+      render();
+      if (tab === "library" && !state.library.items) void loadLibrary();
+      if (tab === "figures" && !state.figures) void loadFigures();
+      if (tab === "skills" && !state.skills.length) void loadSkillsAndPreferences();
+    }
+
+    function render() {
+      if (!state.snapshot) return;
+      const renderers = {
+        overview: renderOverview, projects: renderProjects, runs: renderRuns, library: renderLibrary,
+        figures: renderFigures, latex: renderLatex, exports: renderExports, skills: renderSkills, tools: renderTools
+      };
+      $("#content").innerHTML = `<section class="view">${renderers[state.tab]()}</section>`;
+      bindViewEvents();
+      if (state.tab === "tools") filterTools();
+    }
+
+    function renderOverview() {
+      const snapshot = state.snapshot;
+      const run = snapshot.selectedRun;
+      const running = snapshot.runs?.filter(item => item.status === "running").length || 0;
+      const warnings = snapshot.warningLines?.length || 0;
+      const recentLogs = (snapshot.logs || []).slice(-14).reverse();
+      const stageOrder = ["outline", "literature", "writing", "review", "refinement", "format", "compile", "completed"];
+      const currentIndex = Math.max(0, stageOrder.indexOf(run?.currentStage));
+      return `
+        <div class="page-heading">
+          <div><div class="eyebrow">LIVE ORCHESTRATION</div><h1>把论文流程变成可干预的控制台</h1><p>实时读取 Studio 的项目、运行和作业状态。哪里不满意，就从哪里停下、检查、修改或重做。</p></div>
+          <button class="btn" id="print-button" type="button">打印 / PDF</button>
+        </div>
+        ${snapshot.notices?.length ? `<div class="callout warning"><span class="callout-mark">!</span><div><strong>需要注意</strong><p>${snapshot.notices.map(escapeHtml).join("<br>")}</p></div></div>` : ""}
+        ${run ? `
+          <article class="run-hero">
+            <div class="eyebrow">CURRENT RUN · ${escapeHtml(run.id.slice(0, 8))}</div>
+            <h2>${escapeHtml(projectTitle(run.projectId))}</h2>
+            <p>${statusPill(run.status)} &nbsp; 当前阶段：${escapeHtml(stageLabel(run.currentStage))} &nbsp; 开始于 ${formatDate(run.startedAt)}</p>
+            <div class="run-meta"><span class="pill">${escapeHtml(run.templateName || "未指定模板")}</span><span class="pill">写作模型 ${escapeHtml(run.writerModel || "auto")}</span><span class="pill">${run.usePlotting ? "启用绘图" : "未启用绘图"}</span><span class="pill mono">${escapeHtml(run.runDir || "")}</span></div>
+            <div class="stage-track">${stageOrder.map((stage, index) => `<div class="stage ${index < currentIndex ? "done" : index === currentIndex ? "current" : ""}">${escapeHtml(stageLabel(stage))}</div>`).join("")}</div>
+          </article>
+          <div class="intervention-bar">
+            <span class="label">对这个环节不满意？</span>
+            <button class="btn small" data-action="view-logs" type="button">查看日志</button>
+            <button class="btn small" data-action="edit-project" type="button">修改项目参数</button>
+            <button class="btn small" data-action="redo" type="button">生成重做指令</button>
+            ${run.status === "running" ? `<button class="btn small danger" data-action="stop-run" type="button">停止运行</button>` : ""}
+          </div>
+        ` : `<div class="card pad empty"><div><strong>当前没有运行</strong>选择一个项目开始新的论文运行。</div></div>`}
+        <div class="grid cols-4">
+          <div class="stat"><span class="stat-label">项目</span><strong class="stat-value">${snapshot.projects?.length || 0}</strong><span class="stat-note">Studio 中已保存</span></div>
+          <div class="stat"><span class="stat-label">运行中</span><strong class="stat-value">${running}</strong><span class="stat-note">论文流水线</span></div>
+          <div class="stat"><span class="stat-label">近期作业</span><strong class="stat-value">${snapshot.jobs?.length || 0}</strong><span class="stat-note">含 SOP、绘图、导出</span></div>
+          <div class="stat"><span class="stat-label">需关注</span><strong class="stat-value" style="color:${warnings ? "var(--amber)" : "inherit"}">${warnings}</strong><span class="stat-note">日志中的警告或错误</span></div>
+        </div>
+        <div class="grid main-side">
+          <section class="card">
+            <div class="card-head"><div><h3>实时日志</h3><p>最近 100 条中的最新片段</p></div><button class="btn small ghost" data-action="view-logs" type="button">打开运行页</button></div>
+            <div class="card-body">${renderLogList(recentLogs)}</div>
+          </section>
+          <div class="grid">
+            ${warnings ? `<section class="card"><div class="card-head"><h3>需要关注</h3></div><div class="card-body"><div class="callout warning"><span class="callout-mark">!</span><div><strong>日志提示</strong><p>${(snapshot.warningLines || []).map(entry => escapeHtml(entry.line)).join("<br>")}</p></div></div></div></section>` : ""}
+            <section class="card">
+              <div class="card-head"><div><h3>最近作业</h3><p>Studio 后台任务</p></div></div>
+              <div class="card-body"><div class="list">${(snapshot.jobs || []).slice(0, 6).map(job => `<div class="list-item"><div><strong>${escapeHtml(job.action)}</strong><span class="mono">${escapeHtml(job.jobId.slice(0, 12))} · ${job.elapsedSeconds}s</span></div>${statusPill(job.state)}</div>`).join("") || `<div class="empty">暂无作业</div>`}</div></div>
+            </section>
+          </div>
+        </div>`;
+    }
+
+    function isWarningLine(line) {
+      const text = String(line || "");
+      if (/token usage:.*\b0 failed\b/i.test(text)) return false;
+      return /warning|\berror\b|\bfailed\b|\bexception\b|no figures/i.test(text);
+    }
+
+    function renderLogList(logs) {
+      if (!logs?.length) return `<div class="empty">暂无日志</div>`;
+      return `<div class="log-list">${logs.map(entry => {
+        const warning = isWarningLine(entry.line);
+        const error = /\berror\b|\bexception\b|traceback|writeup failed|pdf generation failed/i.test(entry.line || "");
+        return `<div class="log-row ${error ? "error" : warning ? "warning" : ""}"><span class="log-time">${formatTime(entry.createdAt)}</span><span class="log-stage">${escapeHtml(entry.stage || "—")}</span><span class="log-line">${escapeHtml(entry.line || "")}</span></div>`;
+      }).join("")}</div>`;
+    }
+
+    function renderProjects() {
+      const projects = state.snapshot.projects || [];
+      const detail = state.projectDetail;
+      return `
+        <div class="page-heading"><div><div class="eyebrow">PROJECTS & INPUTS</div><h1>项目与研究材料</h1><p>修改输入比在错误材料上继续跑完更可靠。更新项目前会读取当前版本，避免覆盖冲突。</p></div><button class="btn primary" id="new-project-button" type="button">新建项目</button></div>
+        <section class="card">
+          <div class="card-head"><div><h3>全部项目</h3><p>${projects.length} 个项目</p></div></div>
+          <div class="table-wrap"><table><thead><tr><th>项目</th><th>模板</th><th>运行</th><th>最近状态</th><th>更新</th><th></th></tr></thead><tbody>${projects.map(project => `<tr><td><span class="row-title">${escapeHtml(project.title)}</span><span class="row-sub">${escapeHtml(project.id)}</span></td><td class="mono">${escapeHtml(project.templateName)}</td><td>${project.runCount}</td><td>${statusPill(project.lastRunStatus)}</td><td>${formatDate(project.updatedAt)}</td><td><button class="btn small" data-project="${escapeHtml(project.id)}" type="button">打开</button></td></tr>`).join("")}</tbody></table></div>
+        </section>
+        ${detail ? renderProjectDetail(detail) : ""}`;
+    }
+
+    function renderProjectDetail(project) {
+      return `
+        <section class="card">
+          <div class="card-head"><div><h3>${escapeHtml(project.title)}</h3><p class="mono">${escapeHtml(project.id)}</p></div><div><button class="btn small" id="project-open-studio" type="button">在 Studio 中打开</button> <button class="btn small primary" id="project-start-run" type="button">开始新运行</button></div></div>
+          <div class="card-body">
+            <div class="form-grid">
+              <div class="field"><label for="project-title">标题</label><input class="input" id="project-title" value="${escapeHtml(project.title)}"></div>
+              <div class="field"><label for="project-template">模板 ID</label><input class="input mono" id="project-template" value="${escapeHtml(project.templateName)}"></div>
+              <div class="field"><label for="project-writer">写作模型</label><input class="input" id="project-writer" value="${escapeHtml(project.writerModel || "auto")}"></div>
+              <div class="field"><label for="project-reflection">反思模型</label><input class="input" id="project-reflection" value="${escapeHtml(project.reflectionModel || "auto")}"></div>
+              <div class="field span-2"><label for="project-idea">研究想法</label><textarea class="textarea" id="project-idea" rows="8">${escapeHtml(project.ideaMarkdown || "")}</textarea></div>
+              <div class="field span-2"><label for="project-log">实验记录</label><textarea class="textarea" id="project-log" rows="10">${escapeHtml(project.experimentalLogMarkdown || "")}</textarea></div>
+            </div>
+            <div style="display:flex;justify-content:end;gap:8px;margin-top:14px"><button class="btn" id="project-reload" type="button">重新读取</button><button class="btn primary" id="project-save" type="button">保存修改</button></div>
+          </div>
+        </section>`;
+    }
+
+    function renderRuns() {
+      const runs = state.snapshot.runs || [];
+      const selected = state.runDetail || runs.find(run => run.id === state.selectedRunId) || state.snapshot.selectedRun;
+      return `
+        <div class="page-heading"><div><div class="eyebrow">PIPELINE RUNS</div><h1>写作运行与产物</h1><p>论文运行使用 runId 持久化。停止、恢复和导出都针对具体运行，不会影响其他项目。</p></div></div>
+        <section class="card">
+          <div class="card-head"><div><h3>运行历史</h3><p>${runs.length} 个运行</p></div></div>
+          <div class="table-wrap"><table><thead><tr><th>项目</th><th>状态</th><th>阶段</th><th>开始时间</th><th>运行目录</th><th></th></tr></thead><tbody>${runs.map(run => `<tr><td><span class="row-title">${escapeHtml(projectTitle(run.projectId))}</span><span class="row-sub">${escapeHtml(run.id)}</span></td><td>${statusPill(run.status)}</td><td>${escapeHtml(stageLabel(run.currentStage))}</td><td>${formatDate(run.startedAt)}</td><td class="mono small">${escapeHtml(run.runDir)}</td><td><button class="btn small" data-run="${escapeHtml(run.id)}" type="button">查看</button></td></tr>`).join("")}</tbody></table></div>
+        </section>
+        ${selected ? renderRunDetail(selected) : ""}`;
+    }
+
+    function renderRunDetail(run) {
+      const logs = state.runDetail?.logs || state.snapshot.logs || [];
+      const artifacts = state.runDetail?.artifacts || state.snapshot.artifacts;
+      return `
+        <div class="grid main-side">
+          <section class="card">
+            <div class="card-head"><div><h3>${escapeHtml(projectTitle(run.projectId))}</h3><p>${statusPill(run.status)} · ${escapeHtml(stageLabel(run.currentStage))} · ${formatDate(run.startedAt)}</p></div><div><button class="btn small" data-action="resume-run" type="button">从检查点恢复</button> ${run.status === "running" ? `<button class="btn small danger" data-action="stop-run" type="button">停止</button>` : ""}</div></div>
+            <div class="card-body">
+              ${run.errorMessage ? `<div class="callout danger" style="margin-bottom:14px"><span class="callout-mark">!</span><p>${escapeHtml(run.errorMessage)}</p></div>` : ""}
+              <div class="field" style="margin-bottom:12px"><label for="run-directory">运行目录</label><input class="input mono" id="run-directory" value="${escapeHtml(run.runDir)}" readonly></div>
+              ${renderLogList(logs.slice(-80).reverse())}
+            </div>
+          </section>
+          <section class="card">
+            <div class="card-head"><div><h3>产物</h3><p>PDF、LaTeX、图表与审计报告</p></div></div>
+            <div class="card-body">
+              ${renderArtifacts(artifacts)}
+              <div class="grid" style="margin-top:14px">
+                ${run.pdfPath ? `<button class="btn" data-action="copy-pdf" type="button">复制最终 PDF</button>` : ""}
+                <button class="btn" data-action="export-latex" type="button">导出 Overleaf ZIP</button>
+                <button class="btn" data-action="open-artifacts" type="button">在 Studio 中查看产物</button>
+              </div>
+            </div>
+          </section>
+        </div>`;
+    }
+
+    function renderArtifacts(artifacts) {
+      if (!artifacts) return `<div class="empty">暂无产物摘要</div>`;
+      if (Array.isArray(artifacts)) return `<div class="list">${artifacts.map(item => `<div class="list-item"><div><strong>${escapeHtml(item.name || item.title || item.path || "产物")}</strong><span class="mono">${escapeHtml(item.path || item.relativePath || "")}</span></div></div>`).join("")}</div>`;
+      const entries = Object.entries(artifacts).filter(([, value]) => value !== null && value !== undefined && value !== "");
+      if (!entries.length) return `<div class="empty">暂无产物</div>`;
+      return `<div class="list">${entries.map(([key, value]) => `<div class="list-item"><div><strong>${escapeHtml(key)}</strong><span class="mono">${escapeHtml(typeof value === "string" ? value : JSON.stringify(value))}</span></div></div>`).join("")}</div>`;
+    }
+
+    function renderLibrary() {
+      return `
+        <div class="page-heading"><div><div class="eyebrow">LITERATURE & CITATIONS</div><h1>文献库与引用</h1><p>检索、导入和整理文献。在线检索会消耗 Studio 配置的模型或文献服务额度。</p></div><button class="btn" id="library-refresh" type="button">刷新已保存文献</button></div>
+        <div class="grid cols-2">
+          <section class="card pad">
+            <h3 style="margin-top:0">在线检索</h3>
+            <form id="library-search-form"><div class="field"><label for="library-query">检索词</label><input class="input" id="library-query" required placeholder="研究主题、作者、DOI…"></div><div style="display:flex;gap:8px;margin-top:12px"><button class="btn primary" type="submit">检索</button><label class="small" style="display:flex;align-items:center;gap:5px"><input type="checkbox" id="library-expand"> 扩展检索</label></div></form>
+            <div class="list" id="library-results" style="margin-top:16px">${state.libraryResults.length ? state.libraryResults.map((item, index) => `<div class="list-item"><div><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(item.authors || item.author || "")} · ${escapeHtml(item.year || item.venue || "")}</span><span class="mono">${escapeHtml(item.doi || item.url || "")}</span></div><button class="btn small" data-save-library="${index}" type="button">保存</button></div>`).join("") : `<div class="empty">尚未检索</div>`}</div>
+          </section>
+          <section class="card pad">
+            <h3 style="margin-top:0">按 DOI 导入</h3>
+            <form id="doi-form"><div class="field"><label for="doi-input">DOI</label><input class="input mono" id="doi-input" required placeholder="10.xxxx/xxxxx"></div><button class="btn primary" type="submit" style="margin-top:12px">解析元数据</button></form>
+            <div id="doi-result" style="margin-top:16px">${state.doiResult ? `<div class="callout"><span class="callout-mark">i</span><div><strong>${escapeHtml(state.doiResult.title || "元数据已解析")}</strong><p>${escapeHtml(state.doiResult.authors || "")} · ${escapeHtml(state.doiResult.year || "")}<br><span class="mono">${escapeHtml(state.doiResult.doi || "")}</span></p></div></div>` : ""}</div>
+          </section>
+        </div>
+        <section class="card">
+          <div class="card-head"><div><h3>已保存文献</h3><p>${state.library.total ?? state.library.items?.length ?? 0} 条</p></div></div>
+          <div class="table-wrap"><table><thead><tr><th>标题</th><th>作者 / 年份</th><th>期刊 / 会议</th><th>DOI</th><th>阅读状态</th></tr></thead><tbody>${(state.library.items || []).map(item => `<tr><td><span class="row-title">${escapeHtml(item.title)}</span><span class="row-sub">${escapeHtml(item.id)}</span></td><td>${escapeHtml(item.authors || "")}<br><span class="muted">${escapeHtml(item.year || "")}</span></td><td>${escapeHtml(item.venue || "")}</td><td class="mono small">${escapeHtml(item.doi || "")}</td><td>${escapeHtml(item.readStatus || "")}</td></tr>`).join("") || `<tr><td colspan="5"><div class="empty">文献库为空</div></td></tr>`}</tbody></table></div>
+        </section>`;
+    }
+
+    function renderFigures() {
+      const bundles = state.figures?.bundles || [];
+      return `
+        <div class="page-heading"><div><div class="eyebrow">FIGURE BENCH</div><h1>科学图稿工作台</h1><p>图稿修改会生成新版本。局部修改使用归一化的左上角坐标，范围均在 0–1 之间。</p></div><button class="btn" id="figures-refresh" type="button">刷新图稿</button></div>
+        <div class="grid cols-2">
+          <section class="card pad"><h3 style="margin-top:0">生成新图稿</h3><form id="figure-create-form"><div class="form-grid"><div class="field"><label for="figure-mode">类型</label><select class="select" id="figure-mode"><option value="data_code">数据图 / Python</option><option value="schematic_svg">SVG 示意图</option><option value="concept_image">概念图</option></select></div><div class="field"><label for="figure-outdir">输出目录</label><input class="input mono" id="figure-outdir" placeholder="留空使用 Studio 默认目录"></div><div class="field span-2"><label for="figure-prompt">绘图要求</label><textarea class="textarea" id="figure-prompt" required placeholder="描述数据、风格、坐标轴、图注…"></textarea></div></div><button class="btn primary" type="submit" style="margin-top:12px">生成图稿</button></form></section>
+          <section class="card pad"><h3 style="margin-top:0">修改已有图稿</h3><form id="figure-revise-form"><div class="field"><label for="figure-bundle">图稿包目录</label><input class="input mono" id="figure-bundle" required placeholder="bundle 目录"></div><div class="field" style="margin-top:10px"><label for="figure-instruction">修改要求</label><textarea class="textarea" id="figure-instruction" required placeholder="例如：放大右侧图例，统一字体…"></textarea></div><details style="margin-top:10px"><summary class="small muted">局部区域（可选）</summary><div class="form-grid" style="margin-top:10px"><div class="field"><label for="bbox-x">x</label><input class="input" id="bbox-x" type="number" min="0" max="1" step="0.01"></div><div class="field"><label for="bbox-y">y</label><input class="input" id="bbox-y" type="number" min="0" max="1" step="0.01"></div><div class="field"><label for="bbox-w">宽度</label><input class="input" id="bbox-w" type="number" min="0" max="1" step="0.01"></div><div class="field"><label for="bbox-h">高度</label><input class="input" id="bbox-h" type="number" min="0" max="1" step="0.01"></div></div></details><button class="btn primary" type="submit" style="margin-top:12px">生成新版本</button></form></section>
+        </div>
+        <section class="card"><div class="card-head"><div><h3>图稿版本</h3><p class="mono">${escapeHtml(state.figures?.dir || "")}</p></div></div><div class="card-body"><div class="list">${bundles.length ? bundles.map(bundle => `<div class="list-item"><div><strong>${escapeHtml(bundle.title || bundle.name || bundle.id || "图稿包")}</strong><span class="mono">${escapeHtml(bundle.dir || bundle.path || bundle.bundleDir || JSON.stringify(bundle))}</span></div><button class="btn small" data-figure-bundle="${escapeHtml(bundle.dir || bundle.path || bundle.bundleDir || "")}" type="button">修改</button></div>`).join("") : `<div class="empty">暂无图稿包</div>`}</div></div></section>`;
+    }
+
+    function renderLatex() {
+      const run = state.snapshot.selectedRun;
+      return `
+        <div class="page-heading"><div><div class="eyebrow">LATEX CO-EDITING</div><h1>LaTeX 协同编辑</h1><p>直接编辑已注册运行的 TeX/BibTeX。保存带冲突检测和 Studio 备份，编译错误会原样返回。</p></div></div>
+        <section class="card pad"><div class="toolbar"><div class="field grow"><label for="latex-rundir">运行目录</label><input class="input mono" id="latex-rundir" value="${escapeHtml(state.latex?.runDir || run?.runDir || "")}" placeholder="D:\\…\\paper_…"></div><button class="btn primary" id="latex-open" type="button">打开可编辑文件</button></div></section>
+        ${state.latex ? `
+          <section class="card">
+            <div class="card-head"><div><h3>${escapeHtml(state.latex.mainFile || "LaTeX 源文件")}</h3><p>${state.latex.runActive ? "运行仍活跃，请谨慎编辑" : "运行已结束，可安全编辑"} · ${escapeHtml(state.latex.sourceDir || "")}</p></div><button class="btn small" id="latex-compile" type="button">编译预览</button></div>
+            <div class="split-editor"><div class="file-list">${(state.latex.files || []).map(file => `<button class="file-button ${file === state.latexFile ? "active" : ""}" data-latex-file="${escapeHtml(file)}" type="button">${escapeHtml(file)}</button>`).join("")}</div><div class="editor"><div class="editor-head"><strong class="mono small">${escapeHtml(state.latexFile || "选择一个文件")}</strong><span class="muted small">mtimeMs: ${state.latexMtime || "—"}</span></div><textarea id="latex-editor" aria-label="LaTeX 编辑器" spellcheck="false">${escapeHtml(state.latexContent)}</textarea><div class="editor-foot"><span class="muted small">保存时会校验 mtimeMs；如果 Studio 中文件已变化，请重新读取。</span><div><button class="btn small danger" id="latex-restore" type="button">恢复备份</button> <button class="btn small primary" id="latex-save" type="button">保存并编译</button></div></div></div></div>
+          </section>` : `<section class="card pad empty"><div><strong>尚未打开 LaTeX 源文件</strong>填写运行目录后点击“打开可编辑文件”。</div></section>`}`;
+    }
+
+    function renderExports() {
+      const run = state.snapshot.selectedRun;
+      return `
+        <div class="page-heading"><div><div class="eyebrow">DOCUMENT EXPORT</div><h1>文档导出与投稿检查</h1><p>导出总是写入新路径，避免覆盖已有成果。论文运行产物可直接复制 PDF 或导出 Overleaf ZIP。</p></div></div>
+        <div class="grid cols-2">
+          <section class="card pad"><h3 style="margin-top:0">Markdown 转文档</h3><form id="markdown-export-form"><div class="field"><label for="export-title">标题</label><input class="input" id="export-title"></div><div class="field" style="margin-top:10px"><label for="export-markdown">Markdown</label><textarea class="textarea" id="export-markdown" rows="12" required></textarea></div><div class="form-grid" style="margin-top:10px"><div class="field"><label for="export-format">格式</label><select class="select" id="export-format"><option value="pdf">PDF</option><option value="docx">Word / DOCX</option><option value="html">HTML</option></select></div><div class="field"><label for="export-path">输出路径</label><input class="input mono" id="export-path" required placeholder="D:\\…\\output.pdf"></div></div><button class="btn primary" type="submit" style="margin-top:12px">导出</button></form></section>
+          <section class="card pad"><h3 style="margin-top:0">运行产物导出</h3><div class="field"><label for="export-rundir">运行目录</label><input class="input mono" id="export-rundir" value="${escapeHtml(run?.runDir || "")}"></div><div class="field" style="margin-top:10px"><label for="export-dest">新文件路径</label><input class="input mono" id="export-dest" placeholder="D:\\…\\final_paper.pdf 或 .zip"></div><div style="display:flex;gap:8px;margin-top:12px"><button class="btn" id="copy-run-pdf" type="button">复制 PDF</button><button class="btn" id="export-run-latex" type="button">导出 LaTeX ZIP</button></div><hr style="border:0;border-top:1px solid var(--line);margin:18px 0"><h3>投稿检查</h3><form id="submission-form"><div class="form-grid"><div class="field"><label for="submission-operation">检查类型</label><select class="select" id="submission-operation"><option value="manuscript-audit">篇幅与风格</option><option value="blind">双盲检查</option><option value="diagnose">编译诊断</option><option value="cite-online">引用核查</option><option value="lean-audit">Lean 证明</option><option value="versions">版本检查</option><option value="arxiv">arXiv 打包</option><option value="diff">latexdiff</option></select></div><div class="field" id="submission-directory-field"><label for="submission-directory">TeX 目录</label><input class="input mono" id="submission-directory" placeholder="D:\\…\\latex"></div><div class="field" id="submission-old-field" hidden><label for="submission-old">旧 TeX 文件</label><input class="input mono" id="submission-old"></div><div class="field" id="submission-new-field" hidden><label for="submission-new">新 TeX 文件</label><input class="input mono" id="submission-new"></div><div class="field span-2" id="submission-output-field" hidden><label for="submission-output">新输出路径</label><input class="input mono" id="submission-output" placeholder="D:\\…\\output.pdf 或 source.zip"></div></div><div class="small muted" id="submission-hint" style="margin-top:8px">manuscript-audit、blind、diagnose、cite-online、lean-audit 和 versions 需要 TeX 目录。</div><button class="btn" type="submit" style="margin-top:12px">运行检查</button></form></section>
+        </div>`;
+    }
+
+    function renderSkills() {
+      return `
+        <div class="page-heading"><div><div class="eyebrow">SKILLS & PREFERENCES</div><h1>技能与研究偏好</h1><p>把反复出现的规则写进偏好或自定义技能，减少每次重复纠正。</p></div><button class="btn" id="skills-refresh" type="button">刷新</button></div>
+        <div class="grid main-side">
+          <section class="card"><div class="card-head"><div><h3>可用技能</h3><p>内置与自定义工作流</p></div></div><div class="card-body"><div class="list">${state.skills.map(skill => `<div class="list-item"><div><strong>${escapeHtml(skill.name)}</strong><span>${escapeHtml(skill.description)}</span><span>${escapeHtml(skill.category || "")} · ${escapeHtml(skill.updatedAt || "")}</span></div><button class="btn small" data-run-skill="${escapeHtml(skill.id)}" type="button">运行</button></div>`).join("") || `<div class="empty">暂无技能</div>`}</div></div></section>
+          <section class="card pad"><h3 style="margin-top:0">写作与引用偏好</h3><form id="preferences-form"><div class="field"><label for="pref-language">输出语言</label><input class="input" id="pref-language" value="${escapeHtml(state.preferences.outputLanguage || "")}" placeholder="zh-CN"></div><div class="field" style="margin-top:10px"><label for="pref-citation">引用格式</label><input class="input" id="pref-citation" value="${escapeHtml(state.preferences.citationStyle || "")}" placeholder="GB/T 7714"></div><div class="field" style="margin-top:10px"><label for="pref-format">交付格式</label><input class="input" id="pref-format" value="${escapeHtml(state.preferences.deliveryFormat || "")}" placeholder="PDF + DOCX"></div><div class="field" style="margin-top:10px"><label for="pref-rules">自定义规则</label><textarea class="textarea" id="pref-rules" rows="8" placeholder="例如：避免空洞套话；图表标题首句加粗…">${escapeHtml(state.preferences.customRules || "")}</textarea></div><button class="btn primary" type="submit" style="margin-top:12px">保存偏好</button></form></section>
+        </div>`;
+    }
+
+    function renderTools() {
+      const query = state.toolQuery.trim().toLowerCase();
+      const filtered = state.catalogue.filter(tool => !query || `${tool.name} ${tool.description}`.toLowerCase().includes(query));
+      return `
+        <div class="page-heading"><div><div class="eyebrow">FULL TOOL CATALOGUE</div><h1>71 工具控制台</h1><p>这里保留全部 71 个 MCP 工具的入口。参数以 JSON 填写，由服务端按插件原始 Schema 校验。</p></div></div>
+        <div class="toolbar"><div class="field grow tool-search"><label for="tool-search">搜索工具</label><input class="input" id="tool-search" value="${escapeHtml(state.toolQuery)}" placeholder="工具名或功能…"></div><span class="muted small" id="tool-result-count">${filtered.length} / ${state.catalogue.length}</span></div>
+        <div class="tool-catalogue">${state.catalogue.map(tool => `<article class="tool-entry" data-entry-tool="${escapeHtml(tool.name)}"><div><div class="tool-entry-name">${escapeHtml(tool.name)}</div><div class="tool-badges" style="justify-content:start;margin-top:6px">${tool.annotations?.readOnlyHint ? `<span class="pill success">只读</span>` : ""}${tool.background ? `<span class="pill info">后台</span>` : ""}${tool.annotations?.openWorldHint ? `<span class="pill warning">联网</span>` : ""}${tool.annotations?.destructiveHint ? `<span class="pill danger">破坏性</span>` : ""}</div></div><div class="tool-entry-desc">${escapeHtml(tool.description)}</div><button class="btn small" data-tool="${escapeHtml(tool.name)}" type="button">参数</button></article>`).join("")}</div>`;
+    }
+
+    function filterTools() {
+      const query = state.toolQuery.trim().toLowerCase();
+      let visible = 0;
+      $$("[data-entry-tool]").forEach(entry => {
+        const tool = state.catalogue.find(item => item.name === entry.dataset.entryTool);
+        const show = !query || `${tool?.name || ""} ${tool?.description || ""}`.toLowerCase().includes(query);
+        entry.hidden = !show;
+        if (show) visible += 1;
+      });
+      $("#tool-result-count").textContent = `${visible} / ${state.catalogue.length}`;
+      let empty = $("#tool-empty");
+      if (!visible && !empty) {
+        empty = document.createElement("div");
+        empty.id = "tool-empty";
+        empty.className = "empty";
+        empty.textContent = "没有匹配的工具";
+        $(".tool-catalogue").append(empty);
+      } else if (visible && empty) empty.remove();
+    }
+
+    function bindViewEvents() {
+      $("#print-button")?.addEventListener("click", () => window.print());
+      $$("[data-action]").forEach(button => button.addEventListener("click", () => handleAction(button.dataset.action)));
+      $$("[data-project]").forEach(button => button.addEventListener("click", () => openProject(button.dataset.project)));
+      $$("[data-run]").forEach(button => button.addEventListener("click", () => openRun(button.dataset.run)));
+      $("#new-project-button")?.addEventListener("click", openNewProject);
+      $("#project-open-studio")?.addEventListener("click", () => executeTool("open_studio", { tab: "workspace" }, { skipConfirm: true }));
+      $("#project-start-run")?.addEventListener("click", () => state.projectDetail && executeTool("start_run", { projectId: state.projectDetail.id }));
+      $("#project-reload")?.addEventListener("click", () => state.projectDetail && openProject(state.projectDetail.id));
+      $("#project-save")?.addEventListener("click", saveProject);
+      $("#library-refresh")?.addEventListener("click", loadLibrary);
+      $("#library-search-form")?.addEventListener("submit", searchLibrary);
+      $("#doi-form")?.addEventListener("submit", importDoi);
+      $$("[data-save-library]").forEach(button => button.addEventListener("click", () => saveLibraryResult(Number(button.dataset.saveLibrary))));
+      $("#figures-refresh")?.addEventListener("click", loadFigures);
+      $("#figure-create-form")?.addEventListener("submit", createFigure);
+      $("#figure-revise-form")?.addEventListener("submit", reviseFigure);
+      $$("[data-figure-bundle]").forEach(button => button.addEventListener("click", () => { $("#figure-bundle").value = button.dataset.figureBundle; $("#figure-bundle").focus(); }));
+      $("#latex-open")?.addEventListener("click", openLatex);
+      $$("[data-latex-file]").forEach(button => button.addEventListener("click", () => readLatexFile(button.dataset.latexFile)));
+      $("#latex-save")?.addEventListener("click", saveLatex);
+      $("#latex-compile")?.addEventListener("click", compileLatex);
+      $("#latex-restore")?.addEventListener("click", restoreLatex);
+      $("#markdown-export-form")?.addEventListener("submit", exportMarkdown);
+      $("#copy-run-pdf")?.addEventListener("click", copyRunPdf);
+      $("#export-run-latex")?.addEventListener("click", exportRunLatex);
+      $("#submission-form")?.addEventListener("submit", runSubmission);
+      $("#submission-operation")?.addEventListener("change", updateSubmissionFields);
+      updateSubmissionFields();
+      $("#skills-refresh")?.addEventListener("click", loadSkillsAndPreferences);
+      $("#preferences-form")?.addEventListener("submit", savePreferences);
+      $$("[data-run-skill]").forEach(button => button.addEventListener("click", () => runSkill(button.dataset.runSkill)));
+      $("#tool-search")?.addEventListener("input", event => { state.toolQuery = event.target.value; filterTools(); });
+      $$("[data-tool]").forEach(button => button.addEventListener("click", () => openTool(button.dataset.tool)));
+    }
+
+    async function handleAction(action) {
+      const run = state.runDetail || state.snapshot.selectedRun;
+      if (!run && !["edit-project"].includes(action)) return toast("没有可操作的运行。", true);
+      if (action === "view-logs") {
+        state.selectedRunId = run.id;
+        await openRun(run.id);
+        setTab("runs");
+      } else if (action === "edit-project") {
+        state.selectedProjectId = run?.projectId || state.snapshot.projects?.[0]?.id;
+        await openProject(state.selectedProjectId);
+        setTab("projects");
+      } else if (action === "stop-run") {
+        await executeTool("stop_run", { runId: run.id });
+      } else if (action === "resume-run") {
+        await executeTool("resume_run", { runId: run.id });
+      } else if (action === "redo") {
+        openInterventionDialog(run);
+      } else if (action === "copy-pdf") {
+        const dest = prompt("输入新的 PDF 路径：", `D:\\大四上要学的\\${Date.now()}_final_paper.pdf`);
+        if (dest) await executeTool("copy_run_pdf", { runDir: run.runDir, destPath: dest });
+      } else if (action === "export-latex") {
+        const dest = prompt("输入新的 ZIP 路径：", `D:\\大四上要学的\\${Date.now()}_overleaf.zip`);
+        if (dest) await executeTool("export_run_latex", { runDir: run.runDir, destPath: dest });
+      } else if (action === "open-artifacts") {
+        await executeTool("open_studio", { tab: "artifacts" }, { skipConfirm: true });
+      }
+    }
+
+    async function executeTool(name, args, options = {}) {
+      const tool = state.catalogue.find(item => item.name === name);
+      const readOnly = tool?.annotations?.readOnlyHint === true || name === "open_studio";
+      const destructive = tool?.annotations?.destructiveHint === true;
+      if (!readOnly && !options.skipConfirm) {
+        const ok = await confirmAction(name, destructive, args);
+        if (!ok) return null;
+      }
+      try {
+        const result = await api("/api/tool", {
+          method: "POST",
+          body: { name, args, confirmed: true, confirmation: destructive ? name : undefined, background: options.background === true }
+        });
+        if (result.result?.jobId) {
+          trackJob(result.result, options.onJobComplete);
+          if (options.showResult) showToolResult(name, result.result);
+        } else {
+          if (!readOnly) toast(`${name} 已完成`);
+          if (options.showResult) showToolResult(name, result.result);
+        }
+        if (!readOnly || options.forceRefresh) await refreshSnapshot(true);
+        return result.result;
+      } catch (error) {
+        toast(error.message, true);
+        return null;
+      }
+    }
+
+    function showToolResult(name, result) {
+      $("#result-title").textContent = `${name} · 工具结果`;
+      $("#result-output").textContent = JSON.stringify(result ?? null, null, 2);
+      $("#result-dialog").showModal();
+    }
+
+    function confirmAction(name, destructive, args) {
+      return new Promise(resolve => {
+        state.pendingAction = { name, args, resolve };
+        $("#action-title").textContent = destructive ? "危险操作确认" : "确认执行";
+        $("#action-description").textContent = destructive ? "此操作会改变或恢复 Studio 中的现有状态，请确认目标无误。" : "服务将把此操作发送到本机 PaperOrchestra Studio。";
+        $("#action-body").innerHTML = `<div class="callout ${destructive ? "danger" : "warning"}"><span class="callout-mark">!</span><div><strong class="mono">${escapeHtml(name)}</strong><p>${escapeHtml(JSON.stringify(args, null, 2))}</p></div></div>${destructive ? `<div class="field"><label for="confirm-text">输入 <span class="mono">${escapeHtml(name)}</span> 以确认</label><input class="input mono" id="confirm-text" autocomplete="off"></div>` : `<label class="small" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="confirm-checkbox"> 我已检查参数并确认执行</label>`}`;
+        $("#action-submit").textContent = destructive ? "确认危险操作" : "确认执行";
+        $("#action-dialog").showModal();
+        setTimeout(() => (destructive ? $("#confirm-text") : $("#confirm-checkbox"))?.focus(), 30);
+      });
+    }
+
+    function closeAction(ok) {
+      const pending = state.pendingAction;
+      state.pendingAction = null;
+      $("#action-dialog").close();
+      pending?.resolve(ok);
+    }
+
+    async function openProject(id) {
+      try {
+        const result = await executeTool("get_project", { id }, { skipConfirm: true });
+        if (result) { state.projectDetail = result; state.selectedProjectId = id; render(); }
+      } catch (error) { toast(error.message, true); }
+    }
+
+    async function saveProject() {
+      const project = state.projectDetail;
+      if (!project) return;
+      const patch = {
+        title: $("#project-title").value.trim(),
+        templateName: $("#project-template").value.trim(),
+        writerModel: $("#project-writer").value.trim(),
+        reflectionModel: $("#project-reflection").value.trim(),
+        ideaMarkdown: $("#project-idea").value,
+        experimentalLogMarkdown: $("#project-log").value
+      };
+      const result = await executeTool("update_project", { id: project.id, expectedUpdatedAt: project.updatedAt, patch });
+      if (result) { state.projectDetail = result.project || result; render(); }
+    }
+
+    function openNewProject() {
+      state.pendingAction = { name: "create_project", args: null, resolve: null };
+      $("#action-title").textContent = "新建研究项目";
+      $("#action-description").textContent = "先创建项目，再补充研究想法和实验记录。";
+      $("#action-body").innerHTML = `<div class="field"><label for="new-title">项目标题</label><input class="input" id="new-title" required></div><div class="field" style="margin-top:12px"><label for="new-template">模板 ID</label><input class="input mono" id="new-template" value="journal-chinese-gb7714" required></div>`;
+      $("#action-submit").textContent = "创建项目";
+      $("#action-form").dataset.mode = "new-project";
+      $("#action-dialog").showModal();
+      setTimeout(() => $("#new-title").focus(), 30);
+    }
+
+    async function openRun(id) {
+      const run = state.snapshot.runs.find(item => item.id === id);
+      if (!run) return;
+      state.selectedRunId = id;
+      try {
+        const [logsResult, artifacts] = await Promise.all([
+          api(`/api/run-logs?runId=${encodeURIComponent(id)}`),
+          run.runDir ? executeTool("get_run_artifacts_summary", { runDir: run.runDir }, { skipConfirm: true }) : Promise.resolve(null)
+        ]);
+        state.runDetail = { ...run, logs: logsResult.logs || [], artifacts };
+        render();
+      } catch (error) { toast(error.message, true); }
+    }
+
+    async function loadLibrary() {
+      try {
+        state.library = await executeTool("list_library_items", { offset: 0, limit: 100 }, { skipConfirm: true }) || { items: [] };
+        render();
+      } catch (error) { toast(error.message, true); }
+    }
+
+    async function searchLibrary(event) {
+      event.preventDefault();
+      const query = $("#library-query").value.trim();
+      const result = await executeTool("search_library_online", { query, limit: 15, expand: $("#library-expand").checked }, {
+        onJobComplete: value => {
+          state.libraryResults = Array.isArray(value) ? value : value.items || value.results || [];
+          render();
+        }
+      });
+      if (result && !result.jobId) {
+        state.libraryResults = Array.isArray(result) ? result : result.items || result.results || [];
+        render();
+      }
+    }
+
+    async function importDoi(event) {
+      event.preventDefault();
+      const doi = $("#doi-input").value.trim();
+      const result = await executeTool("import_library_doi", { doi }, {
+        onJobComplete: value => {
+          state.doiResult = value;
+          state.libraryResults = [value];
+          render();
+          toast("DOI 元数据已解析，可在检索结果中保存");
+        }
+      });
+      if (result && !result.jobId) {
+        state.doiResult = result;
+        state.libraryResults = [result];
+        render();
+        toast("DOI 元数据已解析，可在检索结果中保存");
+      }
+    }
+
+    async function saveLibraryResult(index) {
+      const item = state.libraryResults[index];
+      if (!item) return;
+      await executeTool("save_library_item", item);
+      await loadLibrary();
+    }
+
+    async function loadFigures() {
+      try {
+        state.figures = await executeTool("list_figures", {}, { skipConfirm: true });
+        render();
+      } catch (error) { toast(error.message, true); }
+    }
+
+    async function createFigure(event) {
+      event.preventDefault();
+      const args = { mode: $("#figure-mode").value, prompt: $("#figure-prompt").value.trim() };
+      if ($("#figure-outdir").value.trim()) args.outDir = $("#figure-outdir").value.trim();
+      await executeTool("create_figure", args, { onJobComplete: () => { state.figures = null; loadFigures(); } });
+    }
+
+    async function reviseFigure(event) {
+      event.preventDefault();
+      const args = { bundleDir: $("#figure-bundle").value.trim(), instruction: $("#figure-instruction").value.trim() };
+      const values = ["bbox-x", "bbox-y", "bbox-w", "bbox-h"].map(id => $(`#${id}`).value);
+      if (values.every(value => value !== "")) args.bbox = { x: Number(values[0]), y: Number(values[1]), w: Number(values[2]), h: Number(values[3]) };
+      await executeTool("revise_figure", args, { onJobComplete: () => { state.figures = null; loadFigures(); } });
+    }
+
+    async function openLatex() {
+      const runDir = $("#latex-rundir").value.trim();
+      if (!runDir) return toast("请填写运行目录。", true);
+      try {
+        state.latex = await executeTool("live_edit_open", { runDir }, { skipConfirm: true });
+        state.latexFile = state.latex?.mainFile || state.latex?.files?.[0] || null;
+        state.latexContent = "";
+        state.latexMtime = 0;
+        render();
+        if (state.latexFile) await readLatexFile(state.latexFile);
+      } catch (error) { toast(error.message, true); }
+    }
+
+    async function readLatexFile(file) {
+      if (!state.latex?.runDir) return;
+      try {
+        const result = await executeTool("live_edit_read", { runDir: state.latex.runDir, file }, { skipConfirm: true });
+        state.latexFile = file;
+        state.latexContent = result.content || "";
+        state.latexMtime = result.mtimeMs || 0;
+        render();
+      } catch (error) { toast(error.message, true); }
+    }
+
+    async function saveLatex() {
+      if (!state.latex || !state.latexFile) return;
+      const result = await executeTool("live_edit_save", { runDir: state.latex.runDir, file: state.latexFile, content: $("#latex-editor").value, expectedMtimeMs: state.latexMtime });
+      if (result) {
+        state.latexMtime = result.mtimeMs || state.latexMtime;
+        await executeTool("live_edit_compile", { runDir: state.latex.runDir, mainFile: state.latex.mainFile || state.latexFile }, { onJobComplete: value => showToolResult("live_edit_compile", value) });
+      }
+    }
+
+    async function compileLatex() {
+      if (!state.latex) return;
+      await executeTool("live_edit_compile", { runDir: state.latex.runDir, mainFile: state.latex.mainFile || state.latexFile }, { onJobComplete: value => showToolResult("live_edit_compile", value) });
+    }
+
+    async function restoreLatex() {
+      if (!state.latex || !state.latexFile) return;
+      const result = await executeTool("live_edit_restore", { runDir: state.latex.runDir, file: state.latexFile });
+      if (result) await readLatexFile(state.latexFile);
+    }
+
+    async function exportMarkdown(event) {
+      event.preventDefault();
+      await executeTool("export_markdown_document", { title: $("#export-title").value.trim(), markdown: $("#export-markdown").value, format: $("#export-format").value, outputPath: $("#export-path").value.trim() });
+    }
+
+    async function copyRunPdf() {
+      const runDir = $("#export-rundir").value.trim();
+      const destPath = $("#export-dest").value.trim();
+      if (!runDir || !destPath) return toast("请填写运行目录和输出路径。", true);
+      await executeTool("copy_run_pdf", { runDir, destPath });
+    }
+
+    async function exportRunLatex() {
+      const runDir = $("#export-rundir").value.trim();
+      const destPath = $("#export-dest").value.trim();
+      if (!runDir || !destPath) return toast("请填写运行目录和输出路径。", true);
+      await executeTool("export_run_latex", { runDir, destPath });
+    }
+
+    function updateSubmissionFields() {
+      const operation = $("#submission-operation")?.value;
+      if (!operation) return;
+      const diff = operation === "diff";
+      const arxiv = operation === "arxiv";
+      $("#submission-directory-field").hidden = diff;
+      $("#submission-old-field").hidden = !diff;
+      $("#submission-new-field").hidden = !diff;
+      $("#submission-output-field").hidden = !diff && !arxiv;
+      $("#submission-hint").textContent = diff
+        ? "latexdiff 需要旧、新 TeX 文件和一个新的 PDF 输出路径。"
+        : arxiv
+          ? "arXiv 打包需要 TeX 目录和一个新的 ZIP 输出路径。"
+          : "此检查需要 TeX 目录；输出位置由 Studio 的检查流程决定。";
+    }
+
+    async function runSubmission(event) {
+      event.preventDefault();
+      const operation = $("#submission-operation").value;
+      const args = { operation };
+      if (operation === "diff") {
+        args.oldTex = $("#submission-old").value.trim();
+        args.newTex = $("#submission-new").value.trim();
+        args.outputPath = $("#submission-output").value.trim();
+        if (!args.oldTex || !args.newTex || !args.outputPath) return toast("请填写旧 TeX、新 TeX 和输出路径。", true);
+      } else {
+        args.directory = $("#submission-directory").value.trim();
+        if (!args.directory) return toast("请填写 TeX 目录。", true);
+        if (operation === "arxiv") {
+          args.outputPath = $("#submission-output").value.trim();
+          if (!args.outputPath) return toast("请填写新的 ZIP 输出路径。", true);
+        }
+      }
+      await executeTool("run_submission_tool", args, { showResult: true });
+    }
+
+    async function loadSkillsAndPreferences() {
+      try {
+        const [skills, preferences] = await Promise.all([
+          executeTool("list_skills", {}, { skipConfirm: true }),
+          executeTool("get_research_preferences", {}, { skipConfirm: true })
+        ]);
+        state.skills = Array.isArray(skills) ? skills : skills?.value || skills?.items || [];
+        state.preferences = preferences || {};
+        render();
+      } catch (error) { toast(error.message, true); }
+    }
+
+    async function savePreferences(event) {
+      event.preventDefault();
+      await executeTool("save_research_preferences", { outputLanguage: $("#pref-language").value.trim(), citationStyle: $("#pref-citation").value.trim(), deliveryFormat: $("#pref-format").value.trim(), customRules: $("#pref-rules").value });
+    }
+
+    async function runSkill(id) {
+      const promptText = prompt("输入给这个技能的提示词：", "");
+      if (promptText) await executeTool("run_custom_skill", { skillId: id, prompt: promptText });
+    }
+
+    function openTool(name) {
+      const tool = state.catalogue.find(item => item.name === name);
+      if (!tool) return;
+      state.activeTool = tool;
+      $("#tool-dialog-title").textContent = tool.name;
+      $("#tool-dialog-description").textContent = tool.description;
+      $("#tool-json").value = "{}";
+      const required = tool.inputSchema?.required || [];
+      $("#tool-schema-hint").textContent = `必填参数：${required.length ? required.join(", ") : "无"}。可选字段：${Object.keys(tool.inputSchema?.properties || {}).filter(key => !required.includes(key)).join(", ") || "无"}。`;
+      $("#tool-dialog").showModal();
+      setTimeout(() => $("#tool-json").focus(), 30);
+    }
+
+    function openInterventionDialog(run) {
+      state.pendingAction = { name: "intervention", args: { run }, resolve: null };
+      $("#action-title").textContent = "生成给助手的干预指令";
+      $("#action-description").textContent = "面板不会直接改写论文。它会把你的不满意点和期望结果整理成可复制指令。";
+      $("#action-body").innerHTML = `<div class="field"><label for="intervention-stage">不满意的环节</label><select class="select" id="intervention-stage"><option value="${escapeHtml(run.currentStage || "")}">当前阶段：${escapeHtml(stageLabel(run.currentStage))}</option><option value="outline">提纲</option><option value="literature">文献</option><option value="writing">写作</option><option value="figures">图稿</option><option value="latex">LaTeX / 排版</option><option value="citations">引用</option><option value="export">导出</option></select></div><div class="field" style="margin-top:12px"><label for="intervention-reason">哪里不满意</label><textarea class="textarea" id="intervention-reason" rows="6" required placeholder="例如：文献太旧、章节顺序混乱、图注不够具体…"></textarea></div><div class="field" style="margin-top:12px"><label for="intervention-goal">希望怎么改</label><textarea class="textarea" id="intervention-goal" rows="5" required placeholder="例如：只重写相关工作，保留实验和结果…"></textarea></div><div class="field" style="margin-top:12px"><label for="intervention-output">生成的指令</label><textarea class="textarea" id="intervention-output" rows="7" readonly></textarea></div>`;
+      $("#action-submit").textContent = "复制指令";
+      $("#action-form").dataset.mode = "intervention";
+      const update = () => {
+        const stage = $("#intervention-stage").value;
+        const reason = $("#intervention-reason").value.trim();
+        const goal = $("#intervention-goal").value.trim();
+        $("#intervention-output").value = `请检查 PaperOrchestra 项目「${projectTitle(run.projectId)}」的运行 ${run.id}。\n\n不满意环节：${stageLabel(stage)}（${stage}）\n问题：${reason || "待填写"}\n期望修改：${goal || "待填写"}\n\n请保留其他已完成部分，先判断应局部编辑、从检查点恢复，还是开启新运行；不要删除现有运行或产物。`;
+      };
+      ["intervention-stage", "intervention-reason", "intervention-goal"].forEach(id => $(`#${id}`).addEventListener("input", update));
+      update();
+      $("#action-dialog").showModal();
+    }
+
+    function trackJob(job, onComplete) {
+      if (!job?.jobId || state.jobTimers.has(job.jobId)) return;
+      toast(`已提交后台作业：${job.action || job.jobId}`);
+      const timer = setInterval(async () => {
+        try {
+          const current = await executeTool("job_status", { jobId: job.jobId }, { skipConfirm: true });
+          if (!current || current.state === "running" || current.state === "queued") return;
+          clearInterval(timer);
+          state.jobTimers.delete(job.jobId);
+          if (current.state === "succeeded") {
+            toast(`作业完成：${job.action || job.jobId}`);
+            try { onComplete?.(current.result ?? current); } catch (error) { toast(error.message, true); }
+          } else {
+            toast(`作业${current.state === "failed" ? "失败" : "已取消"}：${current.error || job.jobId}`, current.state === "failed");
+          }
+        } catch (error) {
+          clearInterval(timer);
+          state.jobTimers.delete(job.jobId);
+          toast(error.message, true);
+        }
+      }, 2000);
+      state.jobTimers.set(job.jobId, timer);
+    }
+
+    $$(".nav-button").forEach(button => button.addEventListener("click", () => setTab(button.dataset.tab)));
+    $("#refresh-button").addEventListener("click", refreshSnapshot);
+    $("#open-studio-button").addEventListener("click", () => executeTool("open_studio", { tab: "workspace" }, { skipConfirm: true }));
+    $("#pair-form").addEventListener("submit", event => {
+      event.preventDefault();
+      pair($("#pair-key").value.trim()).catch(error => toast(error.message, true));
+    });
+    $("#action-close").addEventListener("click", () => { $("#action-form").dataset.mode = ""; closeAction(false); });
+    $("#action-cancel").addEventListener("click", () => { $("#action-form").dataset.mode = ""; closeAction(false); });
+    $("#action-form").addEventListener("submit", async event => {
+      event.preventDefault();
+      const mode = $("#action-form").dataset.mode;
+      if (mode === "new-project") {
+        const title = $("#new-title").value.trim();
+        const templateName = $("#new-template").value.trim();
+        $("#action-form").dataset.mode = "";
+        $("#action-dialog").close();
+        const result = await executeTool("create_project", { title, templateName });
+        if (result) await openProject(result.id || result.project?.id);
+        return;
+      }
+      if (mode === "intervention") {
+        const text = $("#intervention-output").value;
+        try { await navigator.clipboard.writeText(text); toast("干预指令已复制，可粘贴到 Qoder 聊天"); }
+        catch { toast("复制失败，请手动选择文本复制", true); }
+        $("#action-form").dataset.mode = "";
+        $("#action-dialog").close();
+        return;
+      }
+      const destructive = $("#action-title").textContent.includes("危险");
+      const ok = destructive ? $("#confirm-text")?.value === state.pendingAction?.name : $("#confirm-checkbox")?.checked === true;
+      if (!ok) return toast(destructive ? "请输入正确的工具名。" : "请先勾选确认。", true);
+      closeAction(true);
+    });
+    $("#tool-close").addEventListener("click", () => $("#tool-dialog").close());
+    $("#tool-cancel").addEventListener("click", () => $("#tool-dialog").close());
+    $("#result-close").addEventListener("click", () => $("#result-dialog").close());
+    $("#result-done").addEventListener("click", () => $("#result-dialog").close());
+    $("#result-copy").addEventListener("click", async () => {
+      try { await navigator.clipboard.writeText($("#result-output").textContent); toast("结果已复制"); }
+      catch { toast("复制失败，请手动选择文本", true); }
+    });
+    $("#tool-form").addEventListener("submit", async event => {
+      event.preventDefault();
+      const tool = state.activeTool;
+      let args;
+      try { args = JSON.parse($("#tool-json").value); }
+      catch { return toast("JSON 格式错误。", true); }
+      $("#tool-dialog").close();
+      await executeTool(tool.name, args, { showResult: true });
+    });
+    document.addEventListener("keydown", event => {
+      if (event.key === "Escape") {
+        if ($("#action-dialog").open) { $("#action-form").dataset.mode = ""; closeAction(false); }
+        if ($("#tool-dialog").open) $("#tool-dialog").close();
+        if ($("#result-dialog").open) $("#result-dialog").close();
+      }
+    });
+
+    const hash = new URLSearchParams(location.hash.slice(1));
+    const key = hash.get("key");
+    if (key) pair(key).catch(error => { $("#pairing").hidden = false; $("#app").hidden = true; $("#pair-key").value = key; toast(error.message, true); });
+    else if (state.token) pair(state.token).catch(error => { $("#pairing").hidden = false; $("#app").hidden = true; toast(error.message, true); });
+    else { $("#pairing").hidden = false; $("#app").hidden = true; }
+  </script>
+</body>
+</html>
