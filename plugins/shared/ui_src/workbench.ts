@@ -435,7 +435,7 @@ function renderOverview(): string {
 
     <div class="card">
       <div class="card-head">
-        <div><h3>Canvas 协作干预台</h3><p>复刻 Studio Canvas Console：选预设或输入微调目标，直接下发给 Antigravity 对话。</p></div>
+        <div><h3>Canvas 协作干预台</h3><p>复刻 Studio Canvas Console：选预设或输入微调目标，直接下发给 ${esc(bridge.hostName())} 对话。</p></div>
         <label style="display:inline-flex;align-items:center;gap:6px;font-size:12px;cursor:pointer">
           <input type="checkbox" id="int-cons" ${state.interventionConservative ? "checked" : ""}> 保守模式（先诊断给方案，不直接改文件/停运行）
         </label>
@@ -487,7 +487,7 @@ function renderProjects(): string {
       <div>
         <div class="eyebrow">PROJECTS & INPUTS</div>
         <h1>项目与研究材料</h1>
-        <p>修改前保留 updatedAt 乐观锁，避免桌面端与 Antigravity 双端同时编辑造成互相覆盖。</p>
+        <p>修改前保留 updatedAt 乐观锁，避免桌面端与 ${esc(bridge.hostName())} 双端同时编辑造成互相覆盖。</p>
       </div>
       <div class="btn-row">
         <button class="btn" id="proj-import-cvpr" type="button">导入 CVPR 官方示例</button>
@@ -600,7 +600,7 @@ function renderRuns(): string {
       <div>
         <div class="eyebrow">PIPELINE RUNS & ARTIFACTS</div>
         <h1>写作运行、日志与产物盘点</h1>
-        <p>查看 SQLite 历史运行与后台作业；支持恢复断点、安全复制最终 PDF 或在 Antigravity 侧栏直接预览产物。</p>
+        <p>查看 SQLite 历史运行与后台作业；支持恢复断点、安全复制最终 PDF 或直接打开预览产物。</p>
       </div>
       <div class="btn-row">
         <button class="btn small ${state.autoPoll ? "primary" : ""}" id="runs-toggle-poll" type="button">${state.autoPoll ? "停止自动轮询 (6s)" : "开启自动轮询"}</button>
@@ -707,7 +707,7 @@ function renderRuns(): string {
               ? `<div style="margin-top:10px">
                   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
                     <strong class="mono">${esc(state.artifactPreview.path)}</strong>
-                    <button class="btn small" id="art-open-side" type="button">在 Antigravity 侧栏打开此文件</button>
+                    <button class="btn small" id="art-open-side" type="button">${bridge.isAntigravityHost() ? "在 Antigravity 侧栏打开此文件" : "用系统应用打开此文件"}</button>
                   </div>
                   <pre class="po-pre">${esc(state.artifactPreview.content)}</pre>
                 </div>`
@@ -1406,7 +1406,7 @@ function render(): void {
           }).join("")}
         </nav>
         <div class="po-sidebar-foot">
-          <strong>原生 Antigravity MCP App</strong>
+          <strong>原生 ${esc(bridge.hostName())} MCP App</strong>
           <div class="mono" style="font-size:11px">DB: ${esc((state.snapshot.env?.dbPath || "").split("/").slice(-2).join("/"))}</div>
         </div>
       </aside>
@@ -2184,7 +2184,11 @@ function bindEvents(): void {
     const opened = await bridge.openFileInSidePane(pdfPath, { silent: true, fallbackExternal: false });
     if (!opened) {
       void loadLatexPdfPage(pdfPath, state.latexPdfPage || 1);
-      showToast("当前为全屏视图无侧边文件栏，已切换至内置分页 PDF 预览（也可点「用系统预览打开」）");
+      showToast(
+        bridge.isAntigravityHost()
+          ? "当前为全屏视图无侧边文件栏，已切换至内置分页 PDF 预览（也可点「用系统预览打开」）"
+          : "已切换至内置分页 PDF 预览（也可点「用系统预览打开」）",
+      );
     }
   });
   document.getElementById("ltx-pdf-img")?.addEventListener("click", (ev) => {

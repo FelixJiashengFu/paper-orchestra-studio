@@ -119,6 +119,17 @@ export class ServerBridge {
     return Boolean(this.app.getHostCapabilities()?.updateModelContext);
   }
 
+  hostName(): string {
+    const raw = String((this.app as unknown as { getHostVersion?: () => { name?: string } }).getHostVersion?.()?.name || "");
+    if (/claude/i.test(raw)) return "Claude Desktop";
+    if (/antigravity/i.test(raw)) return "Antigravity";
+    return raw.trim() || "MCP Host";
+  }
+
+  isAntigravityHost(): boolean {
+    return this.hostName() === "Antigravity";
+  }
+
   extractPayload(result: {
     structuredContent?: unknown;
     content?: Array<{ type?: string; text?: string }>;
@@ -218,27 +229,30 @@ export class ServerBridge {
     if (!absPath) return false;
     const fallbackExternal = opts?.fallbackExternal ?? true;
     const silent = opts?.silent ?? false;
-    const normalized = absPath.startsWith("/") ? absPath : `/${absPath}`;
-    const uri = `file://${encodeURI(normalized)}`;
-    try {
-      const res = await this.app.request(
-        {
-          method: "com.google.antigravity/toggle-aux-pane",
-          params: { tabType: "fileView", uri },
-        },
-        z.object({ isError: z.boolean().optional() }).passthrough(),
-      );
-      if (!res?.isError) {
-        showToast("已在 Antigravity 侧栏打开文件");
-        return true;
+    const isAg = this.isAntigravityHost();
+    if (isAg) {
+      const normalized = absPath.startsWith("/") ? absPath : `/${absPath}`;
+      const uri = `file://${encodeURI(normalized)}`;
+      try {
+        const res = await this.app.request(
+          {
+            method: "com.google.antigravity/toggle-aux-pane",
+            params: { tabType: "fileView", uri },
+          },
+          z.object({ isError: z.boolean().optional() }).passthrough(),
+        );
+        if (!res?.isError) {
+          showToast("已在 Antigravity 侧栏打开文件");
+          return true;
+        }
+      } catch {
+        // Fall through to external / inline fallback
       }
-    } catch {
-      // Fall through to external / inline fallback
     }
     if (fallbackExternal) {
       try {
         await this.callTool("po_ui_snapshot", { action: "open_file_external", path: absPath });
-        showToast("当前视图无侧栏，已用系统默认应用打开");
+        showToast(isAg ? "当前视图无侧栏，已用系统默认应用打开" : "已用系统默认应用打开文件");
         return true;
       } catch {
         // Fall through

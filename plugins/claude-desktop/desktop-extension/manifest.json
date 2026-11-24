@@ -3,7 +3,7 @@
   "name": "paper-orchestra-studio",
   "display_name": "PaperOrchestra Studio",
   "version": "1.1.0",
-  "description": "Local AI scientific paper pipeline, 19 LaTeX venue templates, conflict-safe XeLaTeX/SyncTeX workbench, Desktop TCP bridge, Nature & Lean 4 audits, 8-source literature graph, 5 built-in + 5 SOP skills, region-circle figure studio, interactive HTML/Word/PDF export, and SSH/GPU management.",
+  "description": "Local AI scientific paper pipeline with Best-Paper L1-L8 narrative routing, 19 LaTeX venue templates, Overleaf-style side-by-side XeLaTeX & bidirectional SyncTeX workbench, abstract field diagnosis & sentence change-table copilot, author report.md delivery, Desktop TCP bridge, Nature + award-paper style/figure & Lean 4 audits, 8-source literature graph, 5+5 SOP skills, region-circle figure studio, interactive HTML/Word/PDF export, and SSH/GPU management.",
   "author": {
     "name": "FelixJiashengFu",
     "url": "https://github.com/FelixJiashengFu"
@@ -121,15 +121,15 @@
     },
     {
       "name": "po_latex_copilot",
-      "description": "AI LaTeX editing copilot and inline claim-to-citation traceability."
+      "description": "AI LaTeX editing copilot (`edit`), inline claim-to-citation traceability (`trace_citations`), and award-paper abstract diagnosis + sentence change-table polishing (`polish_abstract`)."
     },
     {
       "name": "po_latex_workbench",
-      "description": "Clean latexmk preview compilation, forward/inverse SyncTeX lookup, and Overleaf ZIP export."
+      "description": "Conflict-safe LaTeX co-editing (`open`, `read`, `save`, `restore`), auto-CJK XeLaTeX compile, bidirectional SyncTeX (`sync_view` multi-line highlight & `sync_edit` click-to-jump), and Overleaf ZIP export."
     },
     {
       "name": "po_submission_audit",
-      "description": "Run all 8 pre-submission checks: Nature manuscript-audit, cite-online, arxiv, blind, diagnose, versions, diff, lean-audit."
+      "description": "Pre-submission audits & author report: Nature + award-paper AI-rhythm/figure `manuscript-audit`, `author-report` (`report.md`), `cite-online`, `arxiv`, `blind`, `diagnose`, `versions`, `diff`, `lean-audit`."
     },
     {
       "name": "po_export_document",
@@ -149,7 +149,7 @@
     },
     {
       "name": "po_open_workbench",
-      "description": "Open the interactive PaperOrchestra Studio Workbench UI (projects, pipeline monitor, Canvas intervention, Figure bbox bench, LaTeX editor)."
+      "description": "Open the interactive PaperOrchestra Studio Workbench UI (projects, pipeline monitor, Canvas intervention, Figure bbox bench, Overleaf-style side-by-side LaTeX/PDF SyncTeX editor, abstract polish change-table, and report.md export)."
     },
     {
       "name": "po_open_tool_tree",

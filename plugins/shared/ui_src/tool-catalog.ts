@@ -286,9 +286,9 @@ export const TOOL_NODES: ToolNodeMeta[] = [
     required: ["run_dir"], workflow: "每次改写 TeX 后即时编译并定位错误行号。", guardrail: "产物隔离在 .live_preview/，不污染源目录。", exampleArgs: { action: "compile", run_dir: "" },
   },
   {
-    id: "ltx_sync", tool: "po_latex_workbench", action: "sync_view", title: "SyncTeX 正向/反向定位", group: "latex", risk: "read",
-    description: "在 .tex 行列与预览 PDF 页码坐标之间双向映射（sync_view / sync_edit）。",
-    required: ["run_dir"], workflow: "编译后精准定位段落所在的 PDF 页面坐标。", guardrail: "只读定位。", exampleArgs: { action: "sync_view", run_dir: "", line: 1, column: 1 },
+    id: "ltx_sync", tool: "po_latex_workbench", action: "sync_view", title: "双向 SyncTeX 高亮与点击跳转", group: "latex", risk: "read",
+    description: "支持 end_line 多行区间高亮（sync_view）与点击 PDF 反跳源码行（sync_edit），含 pdf_path 显式绑定。",
+    required: ["run_dir"], workflow: "Overleaf 式左右分栏对照定位源码与 PDF 页面坐标。", guardrail: "只读定位。", exampleArgs: { action: "sync_view", run_dir: "", line: 1, end_line: 1, column: 1 },
   },
   {
     id: "ltx_overleaf", tool: "po_latex_workbench", action: "export_overleaf", title: "干净导出 Overleaf ZIP", group: "latex", risk: "write",
@@ -301,6 +301,11 @@ export const TOOL_NODES: ToolNodeMeta[] = [
     required: ["file_path", "instruction"], workflow: "修复复杂表格/排版错误或按审稿意见改段。", guardrail: "建议配合 workbench read/save 保留原稿备份。", exampleArgs: { action: "edit", file_path: "", instruction: "" },
   },
   {
+    id: "ltx_polish", tool: "po_latex_copilot", action: "polish_abstract", title: "摘要结构诊断与获奖文风改写对照", group: "latex", risk: "read",
+    description: "按获奖论文 7 字段离线诊断摘要并计算 AI 节奏指标（diagnose），或 AI 生成逐句修改对照表与 Limitations 笔记（rewrite）。",
+    required: [], workflow: "投稿前打磨摘要与引言主张表达，杜绝编造数字。", guardrail: "diagnose 模式纯离线不耗额度；rewrite 保留原始数据。", exampleArgs: { action: "polish_abstract", mode: "diagnose", run_dir: "" },
+  },
+  {
     id: "ltx_trace", tool: "po_latex_copilot", action: "trace_citations", title: "正文引文行级溯源", group: "latex", risk: "read",
     description: "建立正文 \\cite 论断与 citation_map / 文献证据的逐处映射。",
     required: ["run_dir"], workflow: "核查某句话引文是否张冠李戴。", guardrail: "只读分析。", exampleArgs: { action: "trace_citations", run_dir: "" },
@@ -308,9 +313,14 @@ export const TOOL_NODES: ToolNodeMeta[] = [
 
   // 5. audit
   {
-    id: "audit_manuscript", tool: "po_submission_audit", action: "manuscript-audit", title: "Nature 级手稿体检", group: "audit", risk: "read",
-    description: "核查宣称层级、图注规范、统计报告、去 AI 套话与术语一致性。",
-    required: ["run_dir"], workflow: "投稿前全文质量把关。", guardrail: "离线只读。", exampleArgs: { action: "manuscript-audit", run_dir: "" },
+    id: "audit_manuscript", tool: "po_submission_audit", action: "manuscript-audit", title: "Nature + 顶会获奖文风/配图体检", group: "audit", risk: "read",
+    description: "核查句尾分词占比、对比排比、工作流泄露、摘要数字预算、图注首句结论、首次引用顺序、栅格图与统计规范。",
+    required: ["run_dir"], workflow: "投稿前全文质量与 AI 痕迹把关。", guardrail: "离线只读，自动区分中英文与期刊/顶会规则。", exampleArgs: { action: "manuscript-audit", run_dir: "" },
+  },
+  {
+    id: "audit_report", tool: "po_submission_audit", action: "author-report", title: "生成作者交付报告 (report.md)", group: "audit", risk: "write",
+    description: "自动汇总论文叙事路由、主张-证据表、配图规划、量化文风摘要、[TODO] 清单与 Limitations 要点。",
+    required: ["run_dir"], workflow: "成稿或润色后导出给作者复核的完整检查报告。", guardrail: "仅生成 report.md / author_report.json，不改源码。", exampleArgs: { action: "author-report", run_dir: "" },
   },
   {
     id: "audit_cite", tool: "po_submission_audit", action: "cite-online", title: "联网核验全部参考文献", group: "audit", risk: "read",

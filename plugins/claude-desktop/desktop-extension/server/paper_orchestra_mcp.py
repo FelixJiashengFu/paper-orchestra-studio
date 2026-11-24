@@ -4968,7 +4968,7 @@ PROMPTS = [
     },
     {
         "name": "open-live-workbench",
-        "description": "Open the interactive PaperOrchestra Workbench UI in Antigravity (or inspect/open the Desktop Studio bridge / browser panel).",
+        "description": "Open the interactive PaperOrchestra Workbench UI in Antigravity or Claude Desktop (or inspect/open the Desktop Studio bridge).",
         "arguments": [
             {"name": "tab", "description": "Initial workbench tab: overview, projects, runs, library, figures, latex, exports, skills, tools", "required": False},
         ],

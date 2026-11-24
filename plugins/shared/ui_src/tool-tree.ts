@@ -116,7 +116,7 @@ function render(): void {
           <div class="field"><label>安全边界与注意事项</label><div class="callout ${sel.risk === "destructive" ? "error" : "warning"}" style="margin:0">${esc(sel.guardrail)}</div></div>
           <div class="field"><label>参数示例</label><pre class="po-pre">${esc(JSON.stringify(sel.exampleArgs || {}, null, 2))}</pre></div>
           <div class="btn-row" style="margin-top:12px">
-            <button class="btn primary" id="node-ask" type="button">${bridge.canSendMessage() ? "让 Antigravity 使用此工具" : "复制调用提示词"}</button>
+            <button class="btn primary" id="node-ask" type="button">${bridge.canSendMessage() ? `让 ${esc(bridge.hostName())} 使用此工具` : "复制调用提示词"}</button>
             <button class="btn" id="node-ctx" type="button">附加到对话上下文</button>
             <button class="btn" id="node-open-wb" type="button">前往实时工作台控制台</button>
           </div>
@@ -129,9 +129,9 @@ function render(): void {
     <div class="po-content">
       <div class="page-head">
         <div>
-          <div class="eyebrow">PAPERORCHESTRA STUDIO × ANTIGRAVITY</div>
+          <div class="eyebrow">PAPERORCHESTRA STUDIO × ${esc(bridge.hostName().toUpperCase())}</div>
           <h1>${uniqueTools} 个 MCP 工具 · ${TOOL_NODES.length} 个能力节点地图</h1>
-          <p>复刻 Studio 原生工具树视图：覆盖 10 大科研工作组、后台作业与防冲突保存路径，点击任意节点可查看参数规范或直接委派 Antigravity 执行。</p>
+          <p>复刻 Studio 原生工具树视图：覆盖 10 大科研工作组、后台作业与防冲突保存路径，点击任意节点可查看参数规范或直接委派 ${esc(bridge.hostName())} 执行。</p>
         </div>
         <div class="btn-row">
           <button class="btn small" id="expand-all" type="button">全部展开</button>

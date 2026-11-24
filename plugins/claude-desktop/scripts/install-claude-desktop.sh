@@ -14,6 +14,7 @@ SERVER_DST="${INSTALL_BASE}/server/paper_orchestra_mcp.py"
 DIST_DST="${INSTALL_BASE}/dist"
 
 PYTHON_BIN="${PO_MCP_PYTHON:-$(command -v python3)}"
+BACKEND_PYTHON="${PAPER_ORCHESTRA_PYTHON:-}"
 REPO_DIR="${PAPER_ORCHESTRA_REPO:-}"
 DEFAULT_PDF_DIR="${PO_DEFAULT_PDF_DIR:-}"
 DEFAULT_HTML_DIR="${PO_DEFAULT_HTML_DIR:-}"
@@ -22,6 +23,8 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --python)
       PYTHON_BIN="$2"; shift 2 ;;
+    --backend-python)
+      BACKEND_PYTHON="$2"; shift 2 ;;
     --repo)
       REPO_DIR="$2"; shift 2 ;;
     --pdf-dir)
@@ -65,6 +68,7 @@ fi
 PO_CFG_PATH="${CFG_PATH}" \
 PO_SERVER_DST="${SERVER_DST}" \
 PO_SERVER_PY="${PYTHON_BIN}" \
+PO_BACKEND_PY="${BACKEND_PYTHON}" \
 PO_DATA_DST="${INSTALL_BASE}/data" \
 PO_ARG_REPO="${REPO_DIR}" \
 PO_ARG_PDF="${DEFAULT_PDF_DIR}" \
@@ -88,11 +92,17 @@ servers = data.setdefault("mcpServers", {})
 if not isinstance(servers, dict):
     raise SystemExit("claude_desktop_config.json `mcpServers` must be an object")
 
+existing = servers.get("paper-orchestra-studio")
+existing_env = dict(existing.get("env") or {}) if isinstance(existing, dict) and isinstance(existing.get("env"), dict) else {}
+
 env = {
+    **existing_env,
     "PAPER_ORCHESTRA_PLUGIN_DATA": os.environ["PO_DATA_DST"],
 }
 if os.environ.get("PO_ARG_REPO"):
     env["PAPER_ORCHESTRA_REPO"] = os.environ["PO_ARG_REPO"]
+if os.environ.get("PO_BACKEND_PY"):
+    env["PAPER_ORCHESTRA_PYTHON"] = os.environ["PO_BACKEND_PY"]
 if os.environ.get("PO_ARG_PDF"):
     env["PO_DEFAULT_PDF_DIR"] = os.environ["PO_ARG_PDF"]
 if os.environ.get("PO_ARG_HTML"):

@@ -1,7 +1,7 @@
 {
   "name": "paper-orchestra-studio",
   "version": "1.1.0",
-  "description": "End-to-end AI scientific paper generation pipeline, 19 venue LaTeX templates, conflict-safe XeLaTeX/SyncTeX workbench, Desktop TCP bridge, Nature & Lean 4 audits, 8-source literature graph, 5 built-in + 5 SOP skills, region-circle figure studio, interactive HTML/Word/PDF export, and SSH/GPU management.",
+  "description": "End-to-end AI scientific paper pipeline with Best-Paper L1-L8 routing, 19 venue LaTeX templates, Overleaf-style side-by-side XeLaTeX & bidirectional SyncTeX workbench, abstract diagnosis & sentence change-table copilot, author report.md delivery, Desktop TCP bridge, Nature + award-paper style/figure & Lean 4 audits, 8-source literature graph, 5+5 SOP skills, region-circle figure studio, interactive HTML/Word/PDF export, and SSH/GPU management.",
   "author": {
     "name": "FelixJiashengFu",
     "url": "https://github.com/FelixJiashengFu"
