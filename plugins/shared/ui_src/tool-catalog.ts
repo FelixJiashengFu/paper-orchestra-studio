@@ -357,6 +357,26 @@ export const TOOL_NODES: ToolNodeMeta[] = [
     description: "检查形式化数学项目中是否存在 sorry、admit 或可疑自定义公理。",
     required: ["project_dir"], workflow: "含 Lean 4 证明附件时使用。", guardrail: "只读审计。", exampleArgs: { action: "lean-audit", project_dir: "" },
   },
+  {
+    id: "rev_matrix", tool: "po_revision_toolkit", action: "review_matrix", title: "审稿意见分拣矩阵", group: "audit", risk: "read",
+    description: "把真实或模拟审稿意见拆成逐条意见（R1.1、R1.2…），标注类型、严重程度与是否需要作者补充数据，输出 Markdown 回复矩阵。",
+    required: [], workflow: "收到审稿意见后先分拣，再逐条撰写回复信。", guardrail: "纯离线规则判断，不调用模型；需要新实验的条目绝不编造结果。", exampleArgs: { action: "review_matrix", reviews_text: "", run_dir: "" },
+  },
+  {
+    id: "rev_preflight", tool: "po_revision_toolkit", action: "preflight", title: "投稿预检（页数/字数/占位符/匿名/声明）", group: "audit", risk: "read",
+    description: "按传入的页数、字数、摘要上限核对手稿，并检查 TODO 占位符、未定义引用、双盲泄露与必需声明。",
+    required: ["run_dir"], workflow: "投稿前排除 Desk-Reject 风险。", guardrail: "离线只读；上限以你传入的数值为准，请对照会议/期刊最新要求。", exampleArgs: { action: "preflight", run_dir: "", max_pages: 9, anonymous: true },
+  },
+  {
+    id: "rev_retraction", tool: "po_revision_toolkit", action: "retraction_check", title: "参考文献撤稿检查", group: "audit", risk: "read",
+    description: "把 .bib 中每个 DOI 送 Crossref 查询撤稿、关注声明与更正通知。",
+    required: [], workflow: "投稿前确认没有引用已撤稿论文。", guardrail: "联网只读；查询失败的条目标为 unverified，不会当作通过。", exampleArgs: { action: "retraction_check", run_dir: "" },
+  },
+  {
+    id: "rev_checklist", tool: "po_revision_toolkit", action: "reporting_checklist", title: "报告规范清单（CONSORT/PRISMA/STROBE/ARRIVE/ML）", group: "audit", risk: "read",
+    description: "按报告规范的条目主题扫描手稿，给出命中行与缺失项。",
+    required: ["guideline"], workflow: "临床试验、系统综述、观察性研究、动物实验与机器学习论文投稿前自查。", guardrail: "离线只读；条目为简化主题，正式投稿需填写官方清单。", exampleArgs: { action: "reporting_checklist", guideline: "ml_reproducibility", run_dir: "" },
+  },
 
   // 6. research
   {

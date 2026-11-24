@@ -132,6 +132,10 @@
       "description": "Pre-submission audits & author report: Nature + award-paper AI-rhythm/figure `manuscript-audit`, `author-report` (`report.md`), `cite-online`, `arxiv`, `blind`, `diagnose`, `versions`, `diff`, `lean-audit`."
     },
     {
+      "name": "po_revision_toolkit",
+      "description": "Deterministic reviewer-comment matrix, venue preflight (limits, placeholders, anonymity, statements), Crossref retraction check, and reporting-guideline checklists"
+    },
+    {
       "name": "po_export_document",
       "description": "Export Markdown reports to interactive Claude Artifacts-style HTML, Word (.docx), PDF, or Google Drive."
     },

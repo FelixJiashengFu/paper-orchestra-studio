@@ -3292,6 +3292,606 @@ def tool_submission_audit(ctx: RuntimeContext, args: Dict[str, Any]) -> Dict[str
     raise RuntimeError(f"Unsupported submission_audit action: {action}")
 
 
+# ---------------------------------------------------------------------------
+# Revision toolkit: review matrix, venue preflight, retraction check, checklists
+# (deterministic, standard library only, no LLM call)
+# ---------------------------------------------------------------------------
+
+_REVIEWER_HEAD_RE = re.compile(
+    r"^\s*(?:#+\s*|\*\*)?(?:(?:reviewer|referee|review)\s*#?\s*(\d+|[A-Z])\b|审稿人\s*#?\s*(\d+|[一二三四五六七八九])|"
+    r"(meta[- ]?review(?:er)?|area chair|associate editor|editor(?:'s)? comments?|编辑意见))",
+    re.IGNORECASE,
+)
+_ITEM_START_RE = re.compile(r"^\s*(?:\(?\d{1,2}[.)、]|[-*•]\s|Q\d+[:.]|W\d+[:.]|(?:major|minor)\s+\d+[:.])", re.IGNORECASE)
+_REVIEW_TYPE_RULES: List[Tuple[str, Tuple[str, ...]]] = [
+    ("missing experiment", ("ablation", "baseline", "additional experiment", "more experiment", "compare with", "comparison with",
+                            "evaluate on", "dataset", "benchmark", "补充实验", "消融", "对比实验", "基线")),
+    ("statistics", ("significan", "p-value", "confidence interval", "error bar", "variance", "standard deviation", "sample size",
+                    "统计", "显著性", "误差棒", "置信区间")),
+    ("missing citation", ("cite", "citation", "related work", "prior work", "reference", "引用", "相关工作", "参考文献")),
+    ("factual error", ("incorrect", "wrong", "error in", "mistake", "contradict", "inconsisten", "does not hold", "错误", "矛盾", "不一致")),
+    ("novelty or scope", ("novel", "incremental", "contribution", "out of scope", "significance of", "创新", "贡献", "增量")),
+    ("reproducibility", ("reproduc", "code", "hyperparameter", "implementation detail", "seed", "复现", "代码", "超参")),
+    ("clarity", ("unclear", "clarify", "confus", "hard to follow", "explain", "define", "notation", "不清楚", "解释", "说明", "定义")),
+    ("presentation", ("typo", "grammar", "figure", "table", "caption", "format", "writing", "排版", "图", "表", "语法", "笔误")),
+]
+_REVIEW_BLOCKING = ("reject", "fatal", "fundamental flaw", "major concern", "major issue", "must", "serious", "critical", "拒稿", "严重", "必须", "重大")
+_REVIEW_MINOR = ("minor", "typo", "nit", "suggest", "optional", "could", "小问题", "建议", "笔误")
+
+
+def _split_reviews(text: str) -> List[Dict[str, Any]]:
+    """Split raw review text into atomic comments with stable IDs (R1.1, R1.2, ...)."""
+    reviewers: List[Tuple[str, List[str]]] = []
+    current: List[str] = []
+    label = ""
+    for line in text.replace("\r\n", "\n").split("\n"):
+        m = _REVIEWER_HEAD_RE.match(line)
+        if m and len(line.strip()) < 80:
+            if current and any(x.strip() for x in current):
+                reviewers.append((label or f"Reviewer {len(reviewers) + 1}", current))
+            label = line.strip().strip("#*: ").strip()
+            current = []
+        else:
+            current.append(line)
+    if current and any(x.strip() for x in current):
+        reviewers.append((label or f"Reviewer {len(reviewers) + 1}", current))
+
+    rows: List[Dict[str, Any]] = []
+    for r_idx, (r_label, lines) in enumerate(reviewers, start=1):
+        items: List[str] = []
+        buf: List[str] = []
+        for line in lines:
+            if not line.strip():
+                if buf:
+                    items.append(" ".join(buf))
+                    buf = []
+                continue
+            if _ITEM_START_RE.match(line) and buf:
+                items.append(" ".join(buf))
+                buf = []
+            buf.append(line.strip())
+        if buf:
+            items.append(" ".join(buf))
+        n = 0
+        for item in items:
+            body = re.sub(r"^\s*(?:\(?\d{1,2}[.)、]|[-*•])\s*", "", item).strip()
+            # Section headings ("Weaknesses:", "## Summary") carry no request of their own.
+            if len(body) < 25 or re.fullmatch(r"[#*\s]*[\w /&'-]{1,40}[:：]?[*\s]*", body):
+                continue
+            n += 1
+            low = body.lower()
+            ctype = next((name for name, keys in _REVIEW_TYPE_RULES if any(k in low for k in keys)), "other")
+            if any(k in low for k in _REVIEW_BLOCKING):
+                severity = "blocking"
+            elif any(k in low for k in _REVIEW_MINOR) or ctype == "presentation":
+                severity = "minor"
+            else:
+                severity = "major"
+            rows.append({
+                "id": f"R{r_idx}.{n}",
+                "reviewer": r_label,
+                "comment": body,
+                "type": ctype,
+                "severity": severity,
+                "needsAuthorInput": ctype in ("missing experiment", "statistics", "reproducibility"),
+                "action": "",
+                "manuscriptLocation": "",
+            })
+    return rows
+
+
+def _review_matrix_markdown(rows: List[Dict[str, Any]]) -> str:
+    out = ["| ID | Reviewer | Type | Severity | Needs author input | Comment | Action | Location |", "| --- | --- | --- | --- | --- | --- | --- | --- |"]
+    for r in rows:
+        comment = r["comment"].replace("|", "\\|")
+        if len(comment) > 220:
+            comment = comment[:217] + "..."
+        out.append(f"| {r['id']} | {r['reviewer']} | {r['type']} | {r['severity']} | {'yes' if r['needsAuthorInput'] else 'no'} | {comment} |  |  |")
+    return "\n".join(out) + "\n"
+
+
+def _strip_tex_for_words(tex: str) -> str:
+    tex = re.sub(r"(?<!\\)%.*", "", tex)
+    m = re.search(r"\\begin\{document\}(.*?)(?:\\end\{document\}|\Z)", tex, re.DOTALL)
+    body = m.group(1) if m else tex
+    body = re.split(r"\\(?:bibliography|printbibliography|begin\{thebibliography\}|appendix)\b", body)[0]
+    for env in ("figure", "table", "equation", "align", "tikzpicture", "algorithm", "lstlisting", "verbatim"):
+        body = re.sub(r"\\begin\{" + env + r"\*?\}.*?\\end\{" + env + r"\*?\}", " ", body, flags=re.DOTALL)
+    body = re.sub(r"\$\$.*?\$\$|\$[^$\n]*\$|\\\[.*?\\\]", " ", body, flags=re.DOTALL)
+    body = re.sub(r"\\(?:cite[a-z]*|ref|eqref|label|autoref|cref|Cref|url|includegraphics|input|include)\*?(?:\[[^\]]*\])*\{[^}]*\}", " ", body)
+    body = re.sub(r"\\[a-zA-Z@]+\*?(?:\[[^\]]*\])*", " ", body)
+    return re.sub(r"[{}~\\]", " ", body)
+
+
+def _count_words(plain: str) -> int:
+    latin = len(re.findall(r"[A-Za-z0-9][A-Za-z0-9'’-]*", plain))
+    cjk = len(re.findall(r"[\u4e00-\u9fff]", plain))
+    return latin + cjk
+
+
+def _read_tex_tree(src_dir: Path, main_tex: Path) -> Dict[str, str]:
+    """Main file plus every \\input / \\include it pulls in (one level of recursion is enough for run dirs)."""
+    files: Dict[str, str] = {}
+    queue = [main_tex]
+    while queue and len(files) < 80:
+        p = queue.pop()
+        key = str(p)
+        if key in files or not p.is_file():
+            continue
+        text = p.read_text(encoding="utf-8", errors="replace")
+        files[key] = text
+        for m in re.finditer(r"\\(?:input|include|subfile)\{([^}]+)\}", re.sub(r"(?<!\\)%.*", "", text)):
+            child = (p.parent / m.group(1)).resolve()
+            if child.suffix != ".tex":
+                child = child.with_suffix(".tex")
+            if src_dir.resolve() in child.parents or child.parent == src_dir.resolve():
+                queue.append(child)
+    return files
+
+
+def _pdf_page_count(src_dir: Path, main_tex: Path) -> Tuple[int, str]:
+    for log in (src_dir / ".live_preview" / (main_tex.stem + ".log"), main_tex.with_suffix(".log")):
+        if log.is_file():
+            m = re.findall(r"Output written on .*?\((\d+) pages?", log.read_text(encoding="utf-8", errors="replace"))
+            if m:
+                return int(m[-1]), str(log)
+    for pdf in (src_dir / ".live_preview" / (main_tex.stem + ".pdf"), main_tex.with_suffix(".pdf")):
+        if pdf.is_file():
+            data = pdf.read_bytes()
+            n = len(re.findall(rb"/Type\s*/Page(?![s\w])", data))
+            if n:
+                return n, str(pdf)
+    return 0, ""
+
+
+_STATEMENT_RULES: Dict[str, Tuple[str, ...]] = {
+    "data_availability": ("data availability", "data are available", "data is available", "availability of data", "数据可用性", "数据可得性"),
+    "code_availability": ("code availability", "code is available", "source code", "github.com", "代码可用性", "代码已开源"),
+    "ethics": ("ethics statement", "ethical approval", "ethics approval", "institutional review board", "irb", "informed consent", "伦理"),
+    "competing_interests": ("competing interest", "conflict of interest", "conflicts of interest", "利益冲突"),
+    "ai_use_disclosure": ("generative ai", "large language model", "ai-assisted", "ai assistance", "use of ai", "chatgpt", "llm usage", "人工智能辅助", "ai 使用声明"),
+    "funding": ("funding", "supported by", "grant", "资助", "基金"),
+    "limitations": ("limitation", "局限"),
+    "author_contributions": ("author contribution", "contributions statement", "credit author", "作者贡献"),
+    "broader_impact": ("broader impact", "societal impact", "社会影响"),
+}
+_PLACEHOLDER_RES: List[Tuple[str, "re.Pattern[str]"]] = [
+    ("TODO / FIXME marker", re.compile(r"\b(?:TODO|FIXME|TBD|XXX)\b")),
+    ("lorem ipsum filler", re.compile(r"lorem ipsum", re.IGNORECASE)),
+    ("empty citation", re.compile(r"\\cite[a-z]*\{\s*\}")),
+    ("citation needed marker", re.compile(r"\[(?:citation needed|cite|ref|\?)\]", re.IGNORECASE)),
+    ("unresolved placeholder", re.compile(r"(?:<<[^>]{1,40}>>|\[\[[^\]]{1,40}\]\]|待补充|待填写)")),
+]
+_ANON_RES: List[Tuple[str, "re.Pattern[str]"]] = [
+    ("acknowledgements present", re.compile(r"\\(?:section\*?|paragraph)\{\s*Acknowledg|\\begin\{ack\}|\\acks?\b|致谢", re.IGNORECASE)),
+    ("personal or lab repository URL", re.compile(r"(?:github\.com|gitlab\.com|bitbucket\.org|huggingface\.co)/(?!anonymous)[\w.-]+", re.IGNORECASE)),
+    ("self-identifying phrasing", re.compile(r"\b(?:our|my) (?:previous|prior|earlier) (?:work|paper|study)\b|\bin our (?:lab|group)\b", re.IGNORECASE)),
+    ("grant or funding number", re.compile(r"\b(?:grant|award)\s+(?:no\.?|number)\s*[\w-]+", re.IGNORECASE)),
+    ("e-mail address", re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")),
+]
+
+
+def _line_hits(files: Dict[str, str], pattern: "re.Pattern[str]", limit: int = 8) -> List[Dict[str, Any]]:
+    hits: List[Dict[str, Any]] = []
+    for path, text in files.items():
+        for no, line in enumerate(text.split("\n"), start=1):
+            code = re.sub(r"(?<!\\)%.*", "", line)  # ignore LaTeX comments, keep escaped \%
+            if not code.strip():
+                continue
+            if pattern.search(code):
+                hits.append({"file": os.path.basename(path), "line": no, "text": line.strip()[:160]})
+                if len(hits) >= limit:
+                    return hits
+    return hits
+
+
+def _preflight(ctx: RuntimeContext, args: Dict[str, Any]) -> Dict[str, Any]:
+    run_dir = Path(os.path.expanduser(str(args.get("run_dir") or ""))).resolve()
+    if not run_dir.is_dir():
+        raise RuntimeError(f"`run_dir` is required and must exist: {run_dir}")
+    src_dir, main_tex = _find_tex_source_and_main(run_dir, str(args.get("tex_file") or ""))
+    files = _read_tex_tree(src_dir, main_tex)
+    full = "\n".join(files.values())
+    low = re.sub(r"(?<!\\)%.*", "", full).lower()
+    blocking: List[Dict[str, Any]] = []
+    warnings: List[Dict[str, Any]] = []
+    passed: List[str] = []
+
+    pages, page_src = _pdf_page_count(src_dir, main_tex)
+    max_pages = int(args.get("max_pages") or 0)
+    if max_pages:
+        if not pages:
+            warnings.append({"check": "page limit", "detail": "No compiled PDF or log found; run po_latex_workbench(action='compile') first."})
+        elif pages > max_pages:
+            blocking.append({"check": "page limit", "detail": f"{pages} pages > limit {max_pages} (total PDF pages; subtract references/appendix if the venue excludes them)."})
+        else:
+            passed.append(f"page limit: {pages} <= {max_pages}")
+
+    words = _count_words(_strip_tex_for_words(files[str(main_tex)] if len(files) == 1 else full))
+    max_words = int(args.get("max_words") or 0)
+    if max_words:
+        if words > max_words:
+            blocking.append({"check": "word limit", "detail": f"about {words} words > limit {max_words} (main text, floats/maths/references excluded)."})
+        else:
+            passed.append(f"word limit: about {words} <= {max_words}")
+
+    abstract = re.search(r"\\begin\{abstract\}(.*?)\\end\{abstract\}", full, re.DOTALL)
+    abstract_words = _count_words(_strip_tex_for_words("\\begin{document}" + abstract.group(1))) if abstract else 0
+    max_abs = int(args.get("max_abstract_words") or 0)
+    if not abstract:
+        warnings.append({"check": "abstract", "detail": "No abstract environment found."})
+    elif max_abs and abstract_words > max_abs:
+        blocking.append({"check": "abstract length", "detail": f"{abstract_words} words > limit {max_abs}."})
+    elif max_abs:
+        passed.append(f"abstract length: {abstract_words} <= {max_abs}")
+
+    for label, pat in _PLACEHOLDER_RES:
+        hits = _line_hits(files, pat)
+        if hits:
+            blocking.append({"check": f"placeholder: {label}", "hits": hits})
+    if not any(b["check"].startswith("placeholder") for b in blocking):
+        passed.append("no draft placeholders")
+
+    log_path = Path(page_src) if page_src.endswith(".log") else None
+    if log_path and log_path.is_file():
+        log_text = log_path.read_text(encoding="utf-8", errors="replace")
+        undef = sorted(set(re.findall(r"(?:Reference|Citation) `([^']+)' .*?undefined", log_text)))
+        if undef:
+            blocking.append({"check": "undefined references or citations", "detail": ", ".join(undef[:15]) + (" ..." if len(undef) > 15 else "")})
+        else:
+            passed.append("no undefined references in the last compile log")
+        overfull = len(re.findall(r"Overfull \\hbox \((\d+\.\d+)pt too wide\)", log_text))
+        if overfull:
+            warnings.append({"check": "overfull boxes", "detail": f"{overfull} overfull \\hbox warnings in the log."})
+
+    if bool(args.get("anonymous")):
+        for label, pat in _ANON_RES:
+            hits = _line_hits(files, pat)
+            if hits:
+                blocking.append({"check": f"anonymity: {label}", "hits": hits})
+        author = re.search(r"\\author\{(.*?)\}\s*(?:\\|$)", full, re.DOTALL)
+        if author and not re.search(r"anonym|匿名|paper id|submission", author.group(1), re.IGNORECASE) and author.group(1).strip():
+            blocking.append({"check": "anonymity: \\author is not anonymised", "detail": author.group(1).strip()[:120]})
+        if not any(b["check"].startswith("anonymity") for b in blocking):
+            passed.append("no anonymity leaks matched")
+
+    wanted = args.get("required_statements")
+    if isinstance(wanted, str):
+        wanted = [x.strip() for x in wanted.split(",") if x.strip()]
+    statements: Dict[str, bool] = {}
+    for key, needles in _STATEMENT_RULES.items():
+        statements[key] = any(n in low for n in needles)
+    for key in (wanted or []):
+        k = str(key).strip().lower().replace("-", "_").replace(" ", "_")
+        if k not in _STATEMENT_RULES:
+            warnings.append({"check": "required statement", "detail": f"Unknown statement key `{key}`; known: {sorted(_STATEMENT_RULES)}"})
+        elif not statements[k]:
+            blocking.append({"check": f"required statement missing: {k}", "detail": "No matching wording found in the source."})
+        else:
+            passed.append(f"statement present: {k}")
+
+    bib_entries = 0
+    bib_no_doi = 0
+    for bib in sorted(src_dir.glob("*.bib")):
+        for entry in re.split(r"\n(?=@)", bib.read_text(encoding="utf-8", errors="replace")):
+            if re.match(r"@(?!comment|string|preamble)\w+\s*\{", entry, re.IGNORECASE):
+                bib_entries += 1
+                if not re.search(r"\b(?:doi|eprint|url)\s*=", entry, re.IGNORECASE):
+                    bib_no_doi += 1
+    if bib_entries and bib_no_doi:
+        warnings.append({"check": "references without DOI / eprint / URL", "detail": f"{bib_no_doi} of {bib_entries} BibTeX entries."})
+
+    return {
+        "ok": True,
+        "ready": not blocking,
+        "mainTex": str(main_tex),
+        "filesScanned": len(files),
+        "pages": pages,
+        "pageCountSource": page_src,
+        "words": words,
+        "abstractWords": abstract_words,
+        "statementsFound": statements,
+        "blocking": blocking,
+        "warnings": warnings,
+        "passed": passed,
+        "note": "Deterministic pattern checks only. Limits are the ones you passed in; confirm them against the venue's current call for papers.",
+    }
+
+
+_DOI_RE = re.compile(r"\b(10\.\d{4,9}/[^\s\"'{}<>,]+)", re.IGNORECASE)
+_UPDATE_SEVERITY = {
+    "retraction": "retracted", "withdrawal": "retracted", "removal": "retracted", "partial_retraction": "retracted",
+    "expression_of_concern": "concern", "correction": "corrected", "erratum": "corrected", "corrigendum": "corrected",
+}
+
+
+def _crossref_updates(doi: str, timeout: float) -> List[Dict[str, Any]]:
+    import urllib.parse
+    import urllib.request
+
+    url = "https://api.crossref.org/works?filter=updates:" + urllib.parse.quote(doi, safe="") + "&rows=20&select=DOI,type,update-to,title"
+    req = urllib.request.Request(url, headers={"User-Agent": f"{SERVER_NAME}/{SERVER_VERSION} (retraction-check)"})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 - fixed https host
+        payload = json.loads(resp.read().decode("utf-8", errors="replace"))
+    notices: List[Dict[str, Any]] = []
+    for item in (payload.get("message") or {}).get("items") or []:
+        for upd in item.get("update-to") or []:
+            if str(upd.get("DOI") or "").lower() != doi.lower():
+                continue
+            kind = str(upd.get("type") or "").lower().replace(" ", "_").replace("-", "_")
+            notices.append({
+                "kind": kind,
+                "status": _UPDATE_SEVERITY.get(kind, "updated"),
+                "noticeDoi": item.get("DOI"),
+                "noticeTitle": ((item.get("title") or [""])[0])[:200],
+            })
+    return notices
+
+
+def _retraction_check(ctx: RuntimeContext, args: Dict[str, Any]) -> Dict[str, Any]:
+    dois: List[str] = []
+    keys: Dict[str, str] = {}
+    raw = args.get("dois")
+    if isinstance(raw, str):
+        raw = [x for x in re.split(r"[\s,;]+", raw) if x]
+    for d in raw or []:
+        m = _DOI_RE.search(str(d))
+        if m:
+            dois.append(m.group(1).rstrip(".);"))
+    if args.get("run_dir"):
+        run_dir = Path(os.path.expanduser(str(args["run_dir"]))).resolve()
+        if not run_dir.is_dir():
+            raise RuntimeError(f"Run directory not found: {run_dir}")
+        for bib in sorted(run_dir.rglob("*.bib"))[:40]:
+            if ".edit_backup" in bib.parts:
+                continue
+            for entry in re.split(r"\n(?=@)", bib.read_text(encoding="utf-8", errors="replace")):
+                km = re.match(r"@\w+\s*\{\s*([^,\s]+)", entry)
+                dm = re.search(r"\bdoi\s*=\s*[{\"]\s*(?:https?://(?:dx\.)?doi\.org/)?([^}\"]+)", entry, re.IGNORECASE)
+                if dm:
+                    doi = dm.group(1).strip().rstrip(".")
+                    dois.append(doi)
+                    if km:
+                        keys.setdefault(doi.lower(), km.group(1))
+    seen: List[str] = []
+    for d in dois:
+        if d.lower() not in [x.lower() for x in seen]:
+            seen.append(d)
+    if not seen:
+        raise RuntimeError("No DOIs found: pass `dois` or a `run_dir` whose .bib files contain doi fields")
+    max_dois = max(1, min(200, int(args.get("max_dois") or 80)))
+    timeout = max(3.0, min(60.0, float(args.get("timeout_sec") or 15.0)))
+    results: List[Dict[str, Any]] = []
+    for doi in seen[:max_dois]:
+        row: Dict[str, Any] = {"doi": doi, "bibKey": keys.get(doi.lower(), "")}
+        try:
+            notices = _crossref_updates(doi, timeout)
+            ranks = {"retracted": 3, "concern": 2, "corrected": 1, "updated": 1}
+            row["status"] = max((n["status"] for n in notices), key=lambda s: ranks.get(s, 0)) if notices else "no_notice_found"
+            row["notices"] = notices
+        except Exception as exc:  # noqa: BLE001 - a failed lookup must never read as "clean"
+            row["status"] = "unverified"
+            row["error"] = f"{type(exc).__name__}: {exc}"[:200]
+        results.append(row)
+    counts: Dict[str, int] = {}
+    for r in results:
+        counts[r["status"]] = counts.get(r["status"], 0) + 1
+    return {
+        "ok": True,
+        "checked": len(results),
+        "skippedOverLimit": max(0, len(seen) - max_dois),
+        "counts": counts,
+        "flagged": [r for r in results if r["status"] in ("retracted", "concern")],
+        "results": results,
+        "source": "Crossref REST API (filter=updates:<doi>)",
+        "note": "`no_notice_found` means Crossref lists no retraction, concern or correction notice for that DOI; it is not proof that none exists. `unverified` rows could not be checked.",
+    }
+
+
+# Abbreviated topic lists. Each item names the topic of the official checklist item(s);
+# authors must complete the official form of the guideline for submission.
+_REPORTING_GUIDELINES: Dict[str, Dict[str, Any]] = {
+    "consort": {"title": "CONSORT (randomised trials)", "official": "https://www.consort-spirit.org/", "items": [
+        ("Identified as a randomised trial in the title", ("randomi",)),
+        ("Structured abstract", ("\\begin{abstract}", "abstract")),
+        ("Background and objectives or hypotheses", ("objective", "hypothes")),
+        ("Trial design and allocation ratio", ("allocation ratio", "parallel", "crossover", "factorial")),
+        ("Eligibility criteria and settings", ("eligib", "inclusion criteri", "exclusion criteri")),
+        ("Interventions described for replication", ("intervention",)),
+        ("Pre-specified primary and secondary outcomes", ("primary outcome", "secondary outcome", "primary endpoint")),
+        ("Sample size determination", ("sample size", "power calculation", "power analysis")),
+        ("Randomisation sequence generation", ("random sequence", "randomisation sequence", "randomization sequence", "block random", "stratif")),
+        ("Allocation concealment", ("allocation concealment", "concealed", "sealed envelope")),
+        ("Blinding", ("blind", "mask")),
+        ("Statistical methods", ("statistical analys", "statistical method")),
+        ("Participant flow with losses and exclusions", ("flow diagram", "lost to follow", "withdrew", "excluded")),
+        ("Recruitment and follow-up dates", ("recruit", "follow-up")),
+        ("Baseline characteristics table", ("baseline",)),
+        ("Numbers analysed, intention-to-treat", ("intention-to-treat", "intention to treat", "per-protocol", "per protocol")),
+        ("Effect sizes with precision", ("confidence interval", "95% ci", "effect size")),
+        ("Harms and adverse events", ("adverse event", "harms", "side effect")),
+        ("Limitations and generalisability", ("limitation", "generalis", "generaliz")),
+        ("Trial registration", ("registration", "clinicaltrials.gov", "isrctn", "chictr")),
+        ("Protocol access", ("protocol",)),
+        ("Funding", ("funding", "funded by", "supported by")),
+    ]},
+    "prisma": {"title": "PRISMA 2020 (systematic reviews)", "official": "https://www.prisma-statement.org/", "items": [
+        ("Identified as a systematic review in the title", ("systematic review", "meta-analysis", "scoping review")),
+        ("Structured abstract", ("\\begin{abstract}", "abstract")),
+        ("Rationale and objectives", ("rationale", "objective", "research question")),
+        ("Eligibility criteria", ("eligib", "inclusion criteri", "exclusion criteri")),
+        ("Information sources with dates", ("database", "pubmed", "scopus", "web of science", "embase", "searched")),
+        ("Full search strategy", ("search strategy", "search string", "search terms")),
+        ("Selection process", ("screen", "selection process", "two reviewers", "independently")),
+        ("Data collection process and data items", ("data extraction", "extracted", "data items")),
+        ("Risk of bias assessment", ("risk of bias", "quality assessment", "rob 2", "newcastle-ottawa")),
+        ("Effect measures", ("effect measure", "odds ratio", "risk ratio", "mean difference", "hazard ratio")),
+        ("Synthesis methods and heterogeneity", ("synthesis", "random-effects", "fixed-effect", "heterogeneity", "i^2", "i2")),
+        ("Reporting bias assessment", ("publication bias", "funnel plot", "reporting bias")),
+        ("Certainty of evidence", ("grade", "certainty of evidence", "certainty")),
+        ("Study selection flow diagram", ("flow diagram", "prisma flow")),
+        ("Study characteristics", ("characteristics of included", "study characteristics")),
+        ("Results of syntheses", ("pooled", "forest plot", "meta-analys")),
+        ("Limitations of evidence and of the review", ("limitation",)),
+        ("Registration and protocol", ("prospero", "registration", "protocol")),
+        ("Funding and competing interests", ("funding", "competing interest", "conflict of interest")),
+        ("Availability of data, code and materials", ("data availability", "available at", "supplementary")),
+    ]},
+    "strobe": {"title": "STROBE (observational studies)", "official": "https://www.strobe-statement.org/", "items": [
+        ("Study design named in title or abstract", ("cohort", "case-control", "cross-sectional")),
+        ("Background and objectives", ("objective", "hypothes")),
+        ("Setting, locations and dates", ("setting", "recruit", "follow-up", "data collection")),
+        ("Participants: eligibility and selection", ("eligib", "inclusion criteri", "selection of participants")),
+        ("Variables: outcomes, exposures, confounders", ("exposure", "confound", "covariate", "outcome")),
+        ("Data sources and measurement", ("measured", "measurement", "data source")),
+        ("Bias", ("bias",)),
+        ("Study size", ("sample size", "study size")),
+        ("Statistical methods incl. missing data", ("statistical analys", "missing data", "imputation", "sensitivity analys")),
+        ("Participant numbers at each stage", ("excluded", "flow diagram", "participants were")),
+        ("Descriptive data", ("baseline", "characteristics")),
+        ("Main results with precision", ("confidence interval", "95% ci", "adjusted")),
+        ("Limitations", ("limitation",)),
+        ("Generalisability", ("generalis", "generaliz", "external validity")),
+        ("Funding", ("funding", "funded by", "supported by")),
+    ]},
+    "arrive": {"title": "ARRIVE 2.0 Essential 10 (animal research)", "official": "https://arriveguidelines.org/", "items": [
+        ("Study design: groups and experimental unit", ("experimental unit", "control group", "study design")),
+        ("Sample size and how it was decided", ("sample size", "power analysis", "n =")),
+        ("Inclusion and exclusion criteria", ("exclusion criteri", "inclusion criteri", "excluded")),
+        ("Randomisation", ("randomi",)),
+        ("Blinding", ("blind", "mask")),
+        ("Outcome measures", ("outcome measure", "primary outcome", "endpoint")),
+        ("Statistical methods", ("statistical analys", "statistical method", "anova", "t-test")),
+        ("Experimental animals: species, strain, sex, age", ("strain", "species", "male", "female", "weeks old")),
+        ("Experimental procedures", ("procedure", "anaesthe", "anesthe", "dose")),
+        ("Results with variability and effect size", ("standard deviation", "confidence interval", "effect size", "mean ±", "sem")),
+    ]},
+    "ml_reproducibility": {"title": "Machine-learning reproducibility checklist (conference style)", "official": "https://neurips.cc/public/guides/PaperChecklist", "items": [
+        ("Claims in abstract and introduction match the results", ("contribution", "we show", "we propose")),
+        ("Limitations discussed", ("limitation",)),
+        ("Assumptions and complete proofs for theory", ("assumption", "proof", "theorem", "lemma")),
+        ("Information needed to reproduce the main results", ("implementation detail", "experimental setup", "reproduc")),
+        ("Code and data access", ("github.com", "code is available", "open-source", "anonymous.4open", "supplementary")),
+        ("Training and test details: splits, hyperparameters, optimiser", ("hyperparameter", "learning rate", "batch size", "optimizer", "optimiser", "train/test", "validation set")),
+        ("Error bars or statistical significance", ("standard deviation", "error bar", "confidence interval", "significan", "over 3 runs", "over 5 runs", "random seeds", "seeds")),
+        ("Compute resources", ("gpu", "compute", "hours", "a100", "v100", "tpu", "cluster")),
+        ("Ethics and broader impact", ("ethic", "broader impact", "societal impact")),
+        ("Safeguards for high-risk releases", ("safeguard", "misuse")),
+        ("Licences for existing assets", ("license", "licence", "cc-by", "mit license", "apache")),
+        ("Documentation of new assets", ("datasheet", "model card", "documentation")),
+        ("Human subjects and crowdsourcing details", ("crowdsourc", "annotator", "participants", "irb")),
+        ("Declaration of LLM usage", ("large language model", "llm", "generative ai", "chatgpt")),
+    ]},
+}
+
+
+def _reporting_checklist(ctx: RuntimeContext, args: Dict[str, Any]) -> Dict[str, Any]:
+    name = str(args.get("guideline") or "").strip().lower().replace("-", "_").replace(" ", "_")
+    if not name or name == "list":
+        return {"ok": True, "guidelines": [{"id": k, "title": v["title"], "items": len(v["items"]), "official": v["official"]} for k, v in _REPORTING_GUIDELINES.items()]}
+    if name not in _REPORTING_GUIDELINES:
+        raise RuntimeError(f"Unknown guideline `{name}`; available: {sorted(_REPORTING_GUIDELINES)}")
+    spec = _REPORTING_GUIDELINES[name]
+    files: Dict[str, str] = {}
+    if args.get("run_dir"):
+        run_dir = Path(os.path.expanduser(str(args["run_dir"]))).resolve()
+        if not run_dir.is_dir():
+            raise RuntimeError(f"Run directory not found: {run_dir}")
+        src_dir, main_tex = _find_tex_source_and_main(run_dir, str(args.get("tex_file") or ""))
+        files = _read_tex_tree(src_dir, main_tex)
+    rows: List[Dict[str, Any]] = []
+    for idx, (topic, needles) in enumerate(spec["items"], start=1):
+        row: Dict[str, Any] = {"n": idx, "topic": topic, "status": "not_scanned"}
+        if files:
+            pat = re.compile("|".join(re.escape(n) for n in needles), re.IGNORECASE)
+            hits = _line_hits(files, pat, limit=3)
+            row["status"] = "evidence_found" if hits else "not_found"
+            row["evidence"] = hits
+        rows.append(row)
+    found = sum(r["status"] == "evidence_found" for r in rows)
+    return {
+        "ok": True,
+        "guideline": name,
+        "title": spec["title"],
+        "official": spec["official"],
+        "scanned": bool(files),
+        "found": found,
+        "missing": [r["topic"] for r in rows if r["status"] == "not_found"],
+        "items": rows,
+        "note": "Abbreviated topic list with keyword evidence. `evidence_found` shows where to look, not that the item is adequately reported; complete the official checklist before submission.",
+    }
+
+
+def tool_revision_toolkit(ctx: RuntimeContext, args: Dict[str, Any]) -> Dict[str, Any]:
+    action = str(args.get("action") or "preflight").strip().lower().replace("-", "_")
+
+    if action == "review_matrix":
+        text = str(args.get("reviews_text") or "")
+        sources: List[str] = []
+        if args.get("reviews_file"):
+            p = Path(os.path.expanduser(str(args["reviews_file"]))).resolve()
+            if not p.is_file():
+                raise RuntimeError(f"Reviews file not found: {p}")
+            text += "\n" + p.read_text(encoding="utf-8", errors="replace")
+            sources.append(str(p))
+        if not text.strip() and args.get("run_dir"):
+            run_dir = Path(os.path.expanduser(str(args["run_dir"]))).resolve()
+            review_dir = run_dir / "peer_reviews"
+            if not review_dir.is_dir():
+                raise RuntimeError(f"No peer_reviews/ directory in {run_dir}")
+            for i, p in enumerate(sorted(x for x in review_dir.rglob("*") if x.suffix.lower() in (".md", ".txt", ".json")), start=1):
+                body = p.read_text(encoding="utf-8", errors="replace")
+                if p.suffix.lower() == ".json":
+                    try:
+                        body = "\n\n".join(str(v) for v in _flatten_strings(json.loads(body)))
+                    except ValueError:
+                        pass
+                text += f"\nReviewer {i}\n{body}\n"
+                sources.append(str(p))
+        if not text.strip():
+            raise RuntimeError("Provide `reviews_text`, `reviews_file`, or a `run_dir` containing peer_reviews/")
+        rows = _split_reviews(text)
+        md = _review_matrix_markdown(rows)
+        out: Dict[str, Any] = {
+            "ok": True,
+            "comments": len(rows),
+            "reviewers": sorted({r["reviewer"] for r in rows}),
+            "bySeverity": {s: sum(r["severity"] == s for r in rows) for s in ("blocking", "major", "minor")},
+            "byType": {t: sum(r["type"] == t for r in rows) for t in sorted({r["type"] for r in rows})},
+            "needsAuthorInput": [r["id"] for r in rows if r["needsAuthorInput"]],
+            "rows": rows,
+            "markdown": md,
+            "sources": sources,
+            "note": "Type and severity are keyword heuristics to start triage; review every row. Rows flagged needsAuthorInput usually need new results from the authors, which must never be invented.",
+        }
+        if args.get("out_path"):
+            target = Path(os.path.expanduser(str(args["out_path"]))).resolve()
+            if target.exists() and not args.get("allow_overwrite"):
+                raise RuntimeError(f"Refusing to overwrite existing file (pass allow_overwrite=true): {target}")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            _atomic_write_bytes(target, ("# Reviewer response matrix\n\n" + md).encode("utf-8"))
+            out["outPath"] = str(target)
+        return out
+
+    if action == "preflight":
+        return _preflight(ctx, args)
+    if action == "retraction_check":
+        return _retraction_check(ctx, args)
+    if action == "reporting_checklist":
+        return _reporting_checklist(ctx, args)
+    raise RuntimeError(f"Unsupported revision_toolkit action: {action}")
+
+
+def _flatten_strings(obj: Any) -> List[str]:
+    if isinstance(obj, str):
+        return [obj] if obj.strip() else []
+    if isinstance(obj, dict):
+        return [s for v in obj.values() for s in _flatten_strings(v)]
+    if isinstance(obj, list):
+        return [s for v in obj for s in _flatten_strings(v)]
+    return []
+
+
 def tool_export_document(ctx: RuntimeContext, args: Dict[str, Any]) -> Dict[str, Any]:
     action = str(args.get("action") or "export").strip().lower()
     if action == "status":
@@ -4753,6 +5353,30 @@ TOOLS: List[Tuple[str, str, Dict[str, Any], Any, Optional[Dict[str, Any]]]] = [
             "timeout_sec": {"type": "number"},
         }, ["action"]),
         tool_submission_audit,
+        None,
+    ),
+    (
+        "po_revision_toolkit",
+        "Deterministic revision and submission checks (no LLM call): `review_matrix` splits raw or simulated reviews into atomic comments with IDs, type, severity and a Markdown response matrix; `preflight` checks a run against venue limits (pages, words, abstract), draft placeholders, undefined references, double-blind leaks and required statements; `retraction_check` looks up every DOI on Crossref for retraction, concern and correction notices; `reporting_checklist` scans a manuscript against CONSORT, PRISMA, STROBE, ARRIVE or an ML reproducibility checklist.",
+        _schema({
+            "action": {"type": "string", "enum": ["review_matrix", "preflight", "retraction_check", "reporting_checklist"]},
+            "run_dir": {"type": "string"},
+            "tex_file": {"type": "string"},
+            "reviews_text": {"type": "string"},
+            "reviews_file": {"type": "string"},
+            "out_path": {"type": "string"},
+            "allow_overwrite": {"type": "boolean"},
+            "max_pages": {"type": "integer"},
+            "max_words": {"type": "integer"},
+            "max_abstract_words": {"type": "integer"},
+            "anonymous": {"type": "boolean", "description": "Check double-blind leaks"},
+            "required_statements": {"type": "array", "items": {"type": "string"}, "description": "Any of data_availability, code_availability, ethics, competing_interests, ai_use_disclosure, funding, limitations, author_contributions, broader_impact"},
+            "dois": {"type": "array", "items": {"type": "string"}},
+            "max_dois": {"type": "integer"},
+            "timeout_sec": {"type": "number"},
+            "guideline": {"type": "string", "enum": ["list", "consort", "prisma", "strobe", "arrive", "ml_reproducibility"]},
+        }, ["action"]),
+        tool_revision_toolkit,
         None,
     ),
     (

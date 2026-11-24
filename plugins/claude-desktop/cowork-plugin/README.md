@@ -1,6 +1,6 @@
 # PaperOrchestra Studio — Claude Desktop / Cowork Plugin
 
-Full-featured Claude Desktop & Claude Code plugin (v1.2.0) with **100% feature parity** with Antigravity: all **22 MCP tools (+ app-only snapshot)**, **6 resources** (including 2 SEP-1865 MCP Apps `workbench.html` & `tool-tree.html` featuring Overleaf-style side-by-side LaTeX/PDF SyncTeX, abstract polish change-table, and `report.md` delivery), **5 prompts**, **6 workflow skills**, Best-Paper L1–L8 routing + structural AI/figure audit, and the **autonomous `paper-orchestra-auditor` subagent**.
+Full-featured Claude Desktop & Claude Code plugin (v1.2.0) with **100% feature parity** with Antigravity: all **23 MCP tools (+ app-only snapshot)**, **6 resources** (including 2 SEP-1865 MCP Apps `workbench.html` & `tool-tree.html` featuring Overleaf-style side-by-side LaTeX/PDF SyncTeX, abstract polish change-table, and `report.md` delivery), **5 prompts**, **6 workflow skills**, Best-Paper L1–L8 routing + structural AI/figure audit, and the **autonomous `paper-orchestra-auditor` subagent**.
 
 ## Installation Options
 

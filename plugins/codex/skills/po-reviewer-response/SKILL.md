@@ -17,7 +17,7 @@ Turn raw reviews (real ones pasted by the user, or the simulated ones in a run's
    - Real reviews: take the text or file the user provides verbatim. Simulated reviews: `po_inspect_run(action='summary')`, then `po_inspect_run(action='read_artifact', relative_path='peer_reviews/...')`.
    - Open the source with `po_latex_workbench(action='open')` and `read`; keep the returned `mtimeMs` for later saves.
 
-2. **Triage into a response matrix** (one row per atomic comment, never merged):
+2. **Triage into a response matrix** (one row per atomic comment, never merged). Start from `po_revision_toolkit(action='review_matrix', reviews_text=...|reviews_file=...|run_dir=...)`, which splits the reviews deterministically into IDs with a first-pass type and severity, then correct and complete each row:
    - Columns: `ID` (R1.1, R1.2, ...), `Reviewer quote` (verbatim, short), `Type` (factual error / missing experiment / missing citation / clarity / scope / presentation), `Severity` (blocking / major / minor), `Action` (accept and change / partially accept / respectfully decline), `Evidence needed`, `Manuscript location`.
    - Mark every row whose answer needs a result the user has not supplied as `【不可核实】 needs author input`. Stop and ask for those before drafting the letter.
 

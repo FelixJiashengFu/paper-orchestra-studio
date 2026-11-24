@@ -22,6 +22,8 @@ Shortlist venues, check a manuscript against the target venue's hard requirement
 2. **Build a requirements card** for the chosen venue: page or word limit (and what is excluded from it), anonymity policy, reference style, required statements (data and code availability, ethics, competing interests, AI-use disclosure), supplementary rules, file format.
 
 3. **Run the deterministic preflight** on the run directory:
+   - `po_revision_toolkit(action='preflight', run_dir=..., max_pages=..., max_words=..., max_abstract_words=..., anonymous=true|false, required_statements=[...])` with the limits from the requirements card: page, word and abstract limits, draft placeholders, undefined references, double-blind leaks, required statements.
+   - `po_revision_toolkit(action='retraction_check', run_dir=...)` to make sure no cited DOI carries a retraction or expression-of-concern notice.
    - `po_submission_audit(action='manuscript-audit')` for word counts, placeholders, figure and caption checks, required statements.
    - `po_submission_audit(action='blind')` when the venue is double-blind (author leaks, acknowledgements, font embedding).
    - `po_submission_audit(action='cite-online')` for reference existence and metadata.

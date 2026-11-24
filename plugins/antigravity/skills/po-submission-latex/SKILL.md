@@ -38,3 +38,4 @@ Use `po_latex_copilot`, `po_latex_workbench`, and `po_submission_audit` on `pape
    - `diagnose`: Parse LaTeX logs with Chinese remediation hints (and optional `--find-packages` via `tlmgr`).
    - `versions` / `diff`: Inspect intermediate draft versions or compile a visual `latexdiff` PDF.
    - `lean-audit`: Run formal Lean 4 project verification cleanly.
+- **Deterministic Revision Toolkit (`po_revision_toolkit`)**: `review_matrix` (split real or simulated reviews into atomic comments with IDs, type, severity and a Markdown response matrix), `preflight` (page/word/abstract limits, draft placeholders, undefined references, double-blind leaks, required statements), `retraction_check` (Crossref retraction and concern notices per cited DOI), and `reporting_checklist` (CONSORT, PRISMA, STROBE, ARRIVE, ML reproducibility). No LLM call; failed lookups are reported as `unverified`, never as clean.

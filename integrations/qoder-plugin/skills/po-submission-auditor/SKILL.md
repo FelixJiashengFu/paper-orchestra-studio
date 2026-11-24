@@ -16,7 +16,7 @@ Run the complete pre-submission and reproducibility audit of a manuscript, a Pap
 ## Instructions
 
 1. **Inventory**: `po_inspect_run(action='summary')` to list `.tex`, `.bib`, `final_paper.pdf`, `citation_audit.json`, `usage_report.json`, `peer_reviews/`.
-2. **Deterministic checks** with `po_submission_audit` on the run directory: `manuscript-audit`, `cite-online`, `blind` (if double-blind), `diagnose`, `versions`, and `lean-audit` for formal proofs (`project_dir`).
+2. **Deterministic checks** with `po_submission_audit` on the run directory: `manuscript-audit`, `cite-online`, `blind` (if double-blind), `diagnose`, `versions`, and `lean-audit` for formal proofs (`project_dir`). Add `po_revision_toolkit` `preflight` (limits, placeholders, anonymity, statements) and `retraction_check` (retracted references).
 3. **Claim grounding**: `po_latex_copilot(action='trace_citations')`, and `polish_abstract` with `mode='diagnose'` for abstract structure.
 4. **Source fixes** (only when the user asked for fixes): `po_latex_workbench` `open` and `read`, `save` with `expected_mtime_ms`, then `compile` and confirm a clean log.
 5. **Delivery**: `po_submission_audit(action='author-report')` for `report.md`, `po_latex_workbench(action='export_overleaf')` for the upload archive, `po_inspect_run(action='copy_pdf')` for a non-overwriting PDF copy.

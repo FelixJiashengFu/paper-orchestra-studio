@@ -1,6 +1,6 @@
 # PaperOrchestra Studio — WorkBuddy / CodeBuddy Plugin
 
-Tencent WorkBuddy and CodeBuddy plugin (v1.2.0) with the same feature set as the Claude Code, Antigravity, Codex and Qoder bundles: the shared zero-dependency Python MCP server (**22 model tools + 1 app-only snapshot / 6 resources / 5 prompts**), the Studio desktop bridge server (71 tools, Node), **12 workflow skills**, and the `paper-orchestra-auditor` subagent.
+Tencent WorkBuddy and CodeBuddy plugin (v1.2.0) with the same feature set as the Claude Code, Antigravity, Codex and Qoder bundles: the shared zero-dependency Python MCP server (**23 model tools + 1 app-only snapshot / 6 resources / 5 prompts**), the Studio desktop bridge server (71 tools, Node), **12 workflow skills**, and the `paper-orchestra-auditor` subagent.
 
 ## 目录结构 / Layout
 

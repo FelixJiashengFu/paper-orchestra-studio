@@ -3,11 +3,13 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 
-const require = createRequire("/tmp/po-ui-build/package.json");
+// Folder with `npm install esbuild zod @modelcontextprotocol/ext-apps @modelcontextprotocol/sdk` done in it.
+const BUILD_DIR = process.env.PO_UI_BUILD_DIR || "/tmp/po-ui-build";
+const require = createRequire(path.join(BUILD_DIR, "package.json"));
 const esbuild = require("esbuild");
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const OUT_DIR = path.resolve(HERE, "../ui_dist");
+const OUT_DIR = process.env.PO_UI_OUT_DIR || path.resolve(HERE, "../ui_dist");
 fs.mkdirSync(OUT_DIR, { recursive: true });
 
 const cssText = fs.readFileSync(path.join(HERE, "styles.css"), "utf8");
@@ -21,7 +23,7 @@ function buildSingleHtml(entryFile, outFile, title) {
     platform: "browser",
     target: ["es2020"],
     minify: true,
-    nodePaths: ["/tmp/po-ui-build/node_modules"],
+    nodePaths: [path.join(BUILD_DIR, "node_modules")],
   });
   const jsText = result.outputFiles[0].text;
   const safeJs = jsText.replace(/<\/script>/gi, "<\\/script>");

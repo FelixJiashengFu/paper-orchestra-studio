@@ -29,7 +29,7 @@ Check that every claim in a manuscript is supported by a citation, a figure or t
    - `Unsupported`【不可核实】: no evidence located. Never fill the gap with invented numbers or citations.
    - Flag number mismatches between abstract, body, tables and captions, and statistics reported without n, dispersion, or test name.
 
-4. **Reproducibility checklist**: code and data location, random seeds, hardware, hyperparameters, dataset splits and licences, number of runs, compute budget. Mark each as stated (with line), missing, or not applicable. For formal proofs run `po_submission_audit(action='lean-audit')`.
+4. **Reproducibility checklist**: run `po_revision_toolkit(action='reporting_checklist', guideline='ml_reproducibility'|'consort'|'prisma'|'strobe'|'arrive', run_dir=...)` for line-level evidence and missing topics, and `po_revision_toolkit(action='retraction_check')` for retracted references. Then review by hand: code and data location, random seeds, hardware, hyperparameters, dataset splits and licences, number of runs, compute budget. Mark each as stated (with line), missing, or not applicable. For formal proofs run `po_submission_audit(action='lean-audit')`.
 
 5. **Draft the statements**, only from facts in the manuscript or supplied by the user:
    - Data and code availability (repository, licence, accession numbers left as explicit `TODO` when unknown).
