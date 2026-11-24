@@ -9,9 +9,12 @@ PaperOrchestra Studio 由两部分组成：**桌面应用**（界面）和 **Pyt
 | `PaperOrchestra-Studio_<版本>_x64-setup.exe` | Windows 10/11 桌面应用安装程序 |
 | `PaperOrchestra-Studio_<版本>_universal.dmg` | macOS 11+ 桌面应用（Intel 与 Apple 芯片通用） |
 | `PaperOrchestra-Backend-<版本>.zip` | Python 后端与一键安装脚本（必装） |
-| `paper-orchestra-studio-<版本>-qoder.zip` | 可选：Qoder Desktop 插件 |
+| `paper-orchestra-studio-<版本>-<平台>.zip` | 可选：智能体平台插件，`<平台>` 为 `claude-code` / `antigravity` / `codex` / `qoder` / `workbuddy`，装法见 [plugins/README.md](../plugins/README.md) |
+| `paper-orchestra-studio-<版本>.mcpb` | 可选：Claude Desktop 一键扩展 |
 | `PaperOrchestra-LiveWorkbench-<版本>.zip` | 可选：浏览器里的实时论文工作台 |
 | `SHA256SUMS.txt` | 文件校验值 |
+
+桌面应用的版本号独立于 Release 版本：v1.2.0 Release 里的桌面安装包文件名仍带 `0.1.0`，这是正常的。
 
 ## 准备工作
 
