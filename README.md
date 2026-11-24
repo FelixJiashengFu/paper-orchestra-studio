@@ -4,6 +4,8 @@
 
 基于 Google 开源的多智能体论文框架 [`google-research/paper-orchestra`](https://github.com/google-research/paper-orchestra) 深度扩展而来：保留原有零回退兼容性的同时，提供跨平台（macOS / Windows）桌面工作台、20+ 模型平台按步路由、8 源学术检索、双向 SyncTeX 实时编辑器、19 套会议/期刊 LaTeX 模板，以及离线投稿核查、科研工坊与类 Claude Artifacts 阅读导出工具。
 
+**v1.2.0 起，同一套能力还以插件形式进入五个智能体平台**：Claude Code、Google Antigravity、OpenAI Codex、Qoder、WorkBuddy / CodeBuddy 装上后功能完全一致（24 个 `po_*` 工具、71 个桌面桥接工具、12 个工作流技能），另附 Coder (coder.com) 远程工作区的一键部署脚本。详见下方 [五平台智能体插件](#五平台智能体插件claude-code--antigravity--codex--qoder--workbuddy)。
+
 ---
 
 ## 下载安装
@@ -14,6 +16,10 @@
 | --- | --- | --- |
 | Windows 10/11 | `PaperOrchestra-Studio_<版本>_x64-setup.exe` | `PaperOrchestra-Backend-<版本>.zip` → 运行 `setup-backend.ps1` |
 | macOS 11+（Intel / Apple 芯片） | `PaperOrchestra-Studio_<版本>_universal.dmg` | `PaperOrchestra-Backend-<版本>.zip` → 运行 `setup-backend.sh` |
+
+> 桌面应用的版本号独立于仓库版本：v1.2.0 Release 里的桌面安装包仍是 `0.1.0`（应用本身自 v0.1.0 起没有改动，只是重新构建），后端包与插件包随 v1.2.0 更新。
+
+只想在智能体里用？同一页面还提供五个平台的插件包 `paper-orchestra-studio-<版本>-<平台>.zip`（`claude-code` / `antigravity` / `codex` / `qoder` / `workbuddy`）和 Claude Desktop 一键扩展 `paper-orchestra-studio-<版本>.mcpb`，安装步骤见 [plugins/README.md](plugins/README.md)。
 
 三步完成：**① 装 Python 3.11+ 与 TeX → ② 解压后端包运行安装脚本 → ③ 安装桌面应用并在「环境与算力」填入 API Key**。安装包暂未做代码签名，首次打开时的系统提示与完整图文步骤见 **[安装指南 docs/INSTALL.md](docs/INSTALL.md)**。
 
@@ -88,12 +94,51 @@
 
 ## 五平台智能体插件（Claude Code / Antigravity / Codex / Qoder / WorkBuddy）
 
-同一套功能在五个平台上等价提供：共享的零依赖 Python MCP 服务（24 个工具 + 6 个资源 + 5 个提示词）、Studio 桌面桥接服务（71 个工具）与 12 个工作流技能（含 v1.2.0 新增的审稿回复、选刊与投稿预检、论断证据核查、报告与海报、端到端投稿审计）。安装方式与对照表见 **[plugins/README.md](plugins/README.md)**。
+同一套功能在五个平台上等价提供，全部由 `plugins/shared/` 一份源码生成：
+
+* **零依赖 Python MCP 服务**（v1.2.0）：24 个模型可见工具 + 6 个资源（含 2 个 MCP Apps 交互界面：九标签工作台与工具树）+ 5 个提示词；
+* **Studio 桌面桥接服务**（Node）：71 个工具，直接驱动正在运行的桌面应用；
+* **12 个工作流技能** 与 1 个投稿审计子智能体（Codex 没有子智能体格式，以技能形式提供）。
+
+| 平台 | 插件包位置 | 安装入口 |
+| --- | --- | --- |
+| **Claude Code**（及 Claude Desktop Cowork） | `plugins/claude-desktop/cowork-plugin/` | `claude plugin marketplace add FelixJiashengFu/paper-orchestra-studio` |
+| **Google Antigravity** | `plugins/antigravity/` | `agy plugin install <路径>` |
+| **OpenAI Codex** | `plugins/codex/` | `codex plugin marketplace add FelixJiashengFu/paper-orchestra-studio` |
+| **Qoder** | `integrations/qoder-plugin/` | `qoder plugins install <路径>` 或在 Qoder Desktop 里装 zip |
+| **WorkBuddy / CodeBuddy** | `plugins/workbuddy/` | 在插件页从仓库目录添加市场，或装 zip |
+| Coder (coder.com) 工作区 | `plugins/coder/` | 工作区内运行 `install-in-workspace.sh`（Coder 没有自己的插件格式，工作区里跑的仍是 Claude Code / Codex 的同一份插件包） |
+
+各平台的清单格式、MCP 注册方式与完整工具列表见 **[plugins/README.md](plugins/README.md)**。
+
+### v1.2.0 新增
+
+* **修回与投稿工具箱 `po_revision_toolkit`**（纯规则、不调用大模型）：审稿意见拆条成响应矩阵、投稿预检（页数/字数/摘要上限、占位符、未定义引用、双盲泄露、必备声明）、按 DOI 查 Crossref 撤稿与更正通告、CONSORT / PRISMA / STROBE / ARRIVE / ML 可复现性报告清单；
+* **文献与稿件同步 `po_reference_sync`**：Zotero（本地 Zotero 7 API 或 Web API）检索、入库、合并 BibTeX、导出 RIS；Overleaf git 关联、拉取与推送（推送默认只演练，需 `confirm_push=true` 才真正执行，且只做快进、从不删除文件）；
+* **5 个新技能**：`po-reviewer-response`（逐条回复信与 latexdiff 修订稿）、`po-venue-preflight`（选刊、防 desk reject 预检、压页、camera-ready、cover letter）、`po-claim-evidence-audit`（论断与证据台账、数字一致性、可复现性与数据/AI 使用声明）、`po-talk-poster`（论文转幻灯片、讲稿、问答演练、海报）、`po-submission-auditor`（端到端投稿审计）；
+* **Claude Code 侧边栏面板 `/po-pane`**（`plugins/claude-code-pane/`，v0.2.1）：在对话旁常驻显示 Studio 连接状态、项目、运行（费用 / Token / 引文核查）、后台任务与文献库；「打开 PDF / 在文件夹中显示」支持 macOS、Windows、Linux 与 WSL。侧边栏面板是 Claude Code 独有的扩展点，其余平台通过同样的工具和 MCP Apps 工作台获得同样的信息；
+* **Windows 兼容**：MCP 服务强制 UTF-8 标准输入输出，不再受系统代码页影响。
+
+### 校验与打包
 
 ```bash
-python3 plugins/scripts/verify_platforms.py     # 一条命令校验五个平台功能一致（41 项检查，含 Coder 工作区部署脚本）
-python3 plugins/scripts/install.py --platform all   # 生成各平台安装包并打印安装步骤
+python3 plugins/scripts/verify_platforms.py --strict   # 44 项检查：清单、文件、技能、子智能体、市场文件，并按各宿主的方式真实启动两个 MCP 服务比对握手结果
+python3 -m unittest discover -s plugins/tests -v       # 同样的检查加上新工具的单元测试；CI 在 Ubuntu / macOS / Windows 上各跑一遍
+python3 plugins/scripts/install.py --platform all      # 生成各平台 zip 到 plugins/dist/ 并打印安装步骤
 ```
+
+### 已验证与尚未验证
+
+说清楚边界，免得「五平台等价」听起来比实际证据更响亮：
+
+| 已由自动化检查覆盖 | 尚未在真实环境验证 |
+| --- | --- |
+| 五个插件包的清单、文件、技能与工具列表逐一比对一致 | 各宿主应用（Antigravity、Codex、Qoder、WorkBuddy 等）实际加载插件包的表现：校验脚本只模拟宿主启动 MCP 服务，不能证明应用界面里一定能装上 |
+| 每个包里的两个 MCP 服务都能启动并完成握手 | `po_reference_sync` 连接真实 Zotero 账号与真实 Overleaf 项目：目前只有针对模拟服务的单元测试 |
+| `po_revision_toolkit`、`po_reference_sync` 的离线单元测试 | `plugins/coder/paper-orchestra.tf` 在真实 Coder 部署上的 `terraform apply`：按模块文档编写，脚本语法已检查 |
+| Ubuntu / macOS / Windows 三系统 CI | |
+
+装好后的冒烟测试：让智能体调用一次 `po_check_environment`。遇到装不上的情况，欢迎带上平台与版本号提 issue。
 
 ---
 
@@ -103,10 +148,11 @@ python3 plugins/scripts/install.py --platform all   # 生成各平台安装包�
 paper-orchestra-studio/
 ├── paper-orchestra/            # Python 多智能体论文流水线、模板库、核查/投稿工具与单元测试
 ├── paper-orchestra-desktop/    # Tauri (Rust + React/TypeScript) 桌面端应用与打包脚本
-├── plugins/                    # 五平台原生插件包（claude-desktop/、antigravity/、codex/、workbuddy/ 与 shared/ 共享 MCP/UI/技能）及同步、校验脚本
+├── plugins/                    # 五平台原生插件包（claude-desktop/、antigravity/、codex/、workbuddy/ 与 shared/ 共享 MCP/UI/技能）、
+│                               #   Claude Code 侧边栏面板（claude-code-pane/）、Coder 工作区部署脚本（coder/）及同步、校验、打包脚本
 ├── integrations/               # Qoder 插件（integrations/qoder-plugin/）、实时论文工作台、工具树与 Canvas 控制台
 ├── scripts/                    # 后端一键安装脚本（setup-backend.ps1 / .sh）
-├── docs/screenshots/           # 桌面工作台实际使用界面与实例截图
+├── docs/                       # 安装指南（INSTALL.md）、各版本发布说明（releases/）与界面截图（screenshots/）
 ├── LICENSE                     # Apache License 2.0
 └── THIRD_PARTY_NOTICES.md      # 上游与第三方开源归属声明（Google / Lattice / Nature-Paper-Skills / TeX 样式）
 ```

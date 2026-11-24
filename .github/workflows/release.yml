@@ -103,8 +103,15 @@ jobs:
           cp docs/INSTALL.md stage/PaperOrchestra-Backend/INSTALL.md
           chmod +x stage/PaperOrchestra-Backend/setup-backend.sh
           (cd stage && zip -qr "../out/PaperOrchestra-Backend-$TAG.zip" PaperOrchestra-Backend)
-          # Qoder plugin: plugin files at the zip root, as Qoder expects.
-          git archive --format=zip -o "out/paper-orchestra-studio-$VERSION-qoder.zip" HEAD:integrations/qoder-plugin
+          # Agent-platform plugins: one zip per platform (claude-code, antigravity, codex,
+          # qoder, workbuddy), plugin files at the zip root. Named after the plugin version.
+          python3 plugins/scripts/verify_platforms.py --strict
+          python3 plugins/scripts/install.py --platform all
+          cp plugins/dist/paper-orchestra-studio-*.zip out/
+          # Claude Desktop one-click extension (.mcpb).
+          python3 plugins/claude-desktop/scripts/build-packages.py
+          PLUGIN_VERSION="$(python3 -c "import json;print(json.load(open('plugins/claude-desktop/desktop-extension/manifest.json'))['version'])")"
+          cp plugins/claude-desktop/dist/paper-orchestra-studio.mcpb "out/paper-orchestra-studio-$PLUGIN_VERSION.mcpb"
           # Live paper workbench.
           git archive --format=zip --prefix=PaperOrchestra-LiveWorkbench/ \
             -o "out/PaperOrchestra-LiveWorkbench-$TAG.zip" HEAD:integrations/live-workbench

@@ -21,7 +21,7 @@ The guardrails that Antigravity loads from `rules/AGENTS.md` are also sent by th
 ### Verify all five
 
 ```bash
-python3 plugins/scripts/verify_platforms.py          # 41 checks: manifests, files, skills, agents, marketplaces, live MCP handshakes
+python3 plugins/scripts/verify_platforms.py          # 44 checks: manifests, files, skills, agents, marketplaces, live MCP handshakes
 python3 -m unittest discover -s plugins/tests -v     # same checks as unit tests (also run in CI: .github/workflows/plugin-parity.yml)
 ```
 
