@@ -19,5 +19,5 @@ Panes beside the chat are a Claude Code feature; Antigravity, Codex, Qoder and W
 
 ## Notes
 
-- "Open PDF" and "Reveal" buttons call the macOS `open` command; on Windows and Linux they report that the path could not be opened.
+- "Open PDF" and "Show in folder" work on macOS (`open`), Windows (`explorer.exe`) and Linux / WSL (`xdg-open`, then `wslview`, then `gio open`). Linux has no "select this file" verb, so revealing a run folder opens the folder.
 - `python3 plugins/scripts/verify_platforms.py` checks that the pane targets the server key the Claude Code plugin registers and that every tool it calls still exists.

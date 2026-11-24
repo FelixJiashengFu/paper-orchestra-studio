@@ -205,15 +205,37 @@ function openStudio($: any, tab: string): void {
   })()
 }
 
+// One list of commands per OS; the first that exits cleanly wins.
+function openCommands(platform: string, path: string, reveal: boolean): { cmds: string[][]; trustExit: boolean } {
+  if (platform === 'macos') return { cmds: [reveal ? ['open', '-R', path] : ['open', path]], trustExit: true }
+  if (platform === 'windows') {
+    // explorer.exe returns 1 even when it opens the window, so its exit code says nothing.
+    const win = path.replace(/\//g, '\\')
+    return { cmds: [reveal ? ['explorer.exe', `/select,${win}`] : ['explorer.exe', win]], trustExit: false }
+  }
+  // Linux and WSL have no "select in file manager" verb: revealing a folder opens it.
+  return { cmds: [['xdg-open', path], ['wslview', path], ['gio', 'open', path]], trustExit: true }
+}
+
 function openPath($: any, path: string, reveal = false): void {
   if (path === '') return
   void (async () => {
+    let platform = 'macos'
     try {
-      const r = await $.process.run(reveal ? ['open', '-R', path] : ['open', path], { timeoutMs: 8000 })
-      if (r.exitCode !== 0) $.ui.toast(`打不开：${path}`)
-    } catch (err) {
-      $.ui.toast(`打不开（${msg(err)}）：${path}`)
+      platform = S((await $.session.info()).platform) || 'macos'
+    } catch { /* older builds: keep the macOS behaviour this pane always had */ }
+    const { cmds, trustExit } = openCommands(platform, path, reveal)
+    let last = ''
+    for (const cmd of cmds) {
+      try {
+        const r = await $.process.run(cmd, { timeoutMs: 8000 })
+        if (!trustExit || r.exitCode === 0) return
+        last = `${cmd[0]} exit ${r.exitCode}`
+      } catch (err) {
+        last = msg(err)
+      }
     }
+    $.ui.toast(`打不开（${last}）：${path}`)
   })()
 }
 
@@ -404,7 +426,7 @@ export const register: Register = on => {
           {latest && latest.pdfPath !== '' && (
             <Box flexDirection="row" gap={1} flexWrap="wrap">
               <Button key="home-pdf" variant="primary" label="打开 PDF" onPress={() => openPath($, latest.pdfPath)} />
-              <Button key="home-dir" label="在访达中显示" onPress={() => openPath($, latest.runDir, true)} />
+              <Button key="home-dir" label="在文件夹中显示" onPress={() => openPath($, latest.runDir, true)} />
             </Box>
           )}
 
@@ -491,7 +513,7 @@ export const register: Register = on => {
             <Box flexDirection="row" flexWrap="wrap" gap={1}>
               {run.pdfPath !== '' && <Button key="r-pdf" variant="primary" label="打开 PDF" onPress={() => openPath($, run.pdfPath)} />}
               {run.pdfPath !== '' && <Button key="r-copy" label="复制 PDF 到默认目录" onPress={() => copyPdf($, run)} />}
-              <Button key="r-dir" label="在访达中显示" onPress={() => openPath($, run.runDir, true)} />
+              <Button key="r-dir" label="在文件夹中显示" onPress={() => openPath($, run.runDir, true)} />
               <Button key="r-reload" label="重新读取" onPress={() => { void loadDetail($, run) }} />
             </Box>
 
