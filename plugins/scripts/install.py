@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Package or install the PaperOrchestra Studio plugin for one of the five agent platforms.
+"""Package or install the PaperOrchestra Studio plugin for one of the agent platforms (the original five plus Muse).
 
     python3 plugins/scripts/install.py --platform all            # build zips + print next steps
     python3 plugins/scripts/install.py --platform antigravity --apply   # also copy into the host folder
@@ -46,6 +46,13 @@ NEXT_STEPS = {
         "WorkBuddy: Plugins -> add marketplace from the folder {repo} (or install {zip}), then install `paper-orchestra-studio`.",
         "CodeBuddy CLI: codebuddy --plugin-dir {root}        # session only",
         "CodeBuddy CLI: codebuddy plugin install paper-orchestra-studio@paper-orchestra-studio   # after adding the marketplace",
+    ],
+    "muse": [
+        "muse plugins validate {root} --json                 # must print \"valid\": true",
+        "muse plugins install {root} --scope user",
+        "muse plugins approve paper-orchestra-studio           # trust its skills and two MCP servers",
+        "Start a new Muse session and ask it to call po_check_environment: hostAgent.name must be \"muse\".",
+        "Optional settings (output folders, model, effort): ~/.config/muse/paper-orchestra.env, see {root}/README.md.",
     ],
 }
 

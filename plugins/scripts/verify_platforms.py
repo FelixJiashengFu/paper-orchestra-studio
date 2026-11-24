@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Verify that all five agent platforms ship the same PaperOrchestra Studio feature set.
+"""Verify that every agent platform (the original five plus Muse) ships the same PaperOrchestra Studio feature set.
 
     python3 plugins/scripts/verify_platforms.py            # human-readable table
     python3 plugins/scripts/verify_platforms.py --json     # machine-readable report
     python3 plugins/scripts/verify_platforms.py --static   # skip launching servers
 
-For each of Claude Code, Antigravity, Codex, Qoder and WorkBuddy this checks the
+For each of Claude Code, Antigravity, Codex, Qoder, WorkBuddy and Muse this checks the
 manifest, the MCP registration, the bundled files, the skills and agents, the
 marketplace entry, and then starts both MCP servers exactly as the host would
 (placeholders resolved to the bundle directory) and compares the tools,
@@ -136,6 +136,72 @@ def launch_spec(entry: Dict[str, Any], plat: P.Platform, data_dir: Path) -> Tupl
     return command, cwd, env
 
 
+def load_servers(plat: P.Platform) -> Dict[str, Dict[str, Any]]:
+    """The bundle's MCP servers as {key: {command, args, cwd?, env?}}, whatever the host's format."""
+    doc = json.loads((plat.root / plat.mcp_config).read_text(encoding="utf-8"))
+    if plat.mcp_format == "muse-manifest":
+        out: Dict[str, Dict[str, Any]] = {}
+        for entry in doc["capabilities"]["mcpServers"]:
+            argv = entry["command"]
+            if entry.get("transport", "stdio") != "stdio" or not isinstance(argv, list) or not argv:
+                raise ValueError(f"MCP server {entry.get('id')!r} must be a stdio argv list")
+            out[entry["id"]] = {"command": argv[0], "args": list(argv[1:])}
+        return out
+    return doc["mcpServers"]
+
+
+def call_tool(command: List[str], cwd: Path, env: Dict[str, str], name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+    """Call one tool on a stdio MCP server and return its JSON payload."""
+    r = rpc(command, cwd, env, HANDSHAKE[:2] + [
+        {"jsonrpc": "2.0", "id": 9, "method": "tools/call", "params": {"name": name, "arguments": arguments}}])
+    return json.loads(r[9]["result"]["content"][0]["text"])
+
+
+def check_host_agent(plat: P.Platform, servers: Dict[str, Dict[str, Any]], static: bool, data_dir: Path) -> List[Check]:
+    """A bundle that routes backend LLM calls to its host agent (Muse) must really turn that on,
+    and every other bundle must leave it off."""
+    checks: List[Check] = []
+    entry = servers.get(plat.python_server_key)
+    if entry is None:
+        return checks
+    if plat.host_agent:
+        backend = (P.REPO_ROOT / "paper-orchestra" / "utils" / "providers.py").read_text(encoding="utf-8")
+        ok = f'name="{plat.host_agent}"' in backend and (P.REPO_ROOT / "paper-orchestra" / "utils" / "agent_cli_utils.py").is_file()
+        checks.append((f"backend has the `{plat.host_agent}` host-agent provider", "pass" if ok else "fail",
+                       "paper-orchestra/utils/providers.py + agent_cli_utils.py"))
+        try:
+            man = json.loads((plat.root / plat.manifests[0]).read_text(encoding="utf-8"))
+            listed = {e["id"]: e["path"] for e in man["capabilities"]["skills"]}
+            on_disk = {p.name for p in (plat.root / "skills").iterdir() if (p / "SKILL.md").is_file()}
+            bad = sorted(set(listed) ^ on_disk) + [i for i, rel in listed.items() if not (plat.root / rel).is_file()]
+            families = set(man["capabilities"])
+            ok = not bad and families == {"skills", "commands", "hooks", "mcpServers", "reminders"} \
+                and man.get("schemaVersion") == 1 and man.get("compat", {}).get("manifestDir") == ".muse-plugin"
+            checks.append(("manifest lists every skill (native Muse schema)", "pass" if ok else "fail",
+                           f"{len(listed)} skills" if ok else f"mismatch: {bad or sorted(families)}"))
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            checks.append(("manifest lists every skill (native Muse schema)", "fail", repr(exc)))
+    if static:
+        return checks
+    try:
+        command, cwd, env = launch_spec(entry, plat, data_dir)
+        if command[0] in ("python3", "python"):
+            command[0] = sys.executable
+        for name in ("PO_HOST_AGENT", "PO_HOST_AGENT_STRICT"):
+            if name not in (entry.get("env") or {}):
+                env.pop(name, None)  # what the bundle itself sets, not this shell
+        info = call_tool(command, cwd, env, "po_check_environment", {}).get("hostAgent") or {}
+        if plat.host_agent:
+            ok = info.get("enabled") is True and info.get("name") == plat.host_agent and info.get("strict") is True
+            checks.append((f"server starts in `{plat.host_agent}`-only mode (no other LLM API)", "pass" if ok else "fail", json.dumps(info, ensure_ascii=False)[:160]))
+        else:
+            ok = info.get("enabled") is False
+            checks.append(("host-agent mode is off (providers come from .env)", "pass" if ok else "fail", "" if ok else json.dumps(info)[:160]))
+    except Exception as exc:  # noqa: BLE001
+        checks.append(("host-agent mode", "fail", f"{type(exc).__name__}: {exc}"))
+    return checks
+
+
 def check_platform(plat: P.Platform, baseline: Dict[str, Any], static: bool, data_dir: Path) -> List[Check]:
     checks: List[Check] = []
 
@@ -194,8 +260,8 @@ def check_platform(plat: P.Platform, baseline: Dict[str, Any], static: bool, dat
 
     # 6. MCP registration + live handshake
     try:
-        servers = json.loads((plat.root / plat.mcp_config).read_text(encoding="utf-8"))["mcpServers"]
-    except (OSError, ValueError, KeyError) as exc:
+        servers = load_servers(plat)
+    except (OSError, ValueError, KeyError, TypeError) as exc:
         add(f"MCP config {plat.mcp_config}", False, repr(exc))
         return checks
     for kind, key in (("python", plat.python_server_key), ("bridge", plat.bridge_server_key)):
@@ -208,6 +274,8 @@ def check_platform(plat: P.Platform, baseline: Dict[str, Any], static: bool, dat
             script = next((Path(a) if os.path.isabs(a) else cwd / a for a in command[1:] if a.endswith((".py", ".mjs"))), None)
             if script is None or not script.is_file():
                 raise RuntimeError(f"entry script not found: {script}")
+            if kind == "python" and plat.python_entry and script.resolve() != (plat.root / plat.python_entry).resolve():
+                raise RuntimeError(f"expected the launcher {plat.python_entry}, found {script.name}")
             if static:
                 add(label, "pass", f"registered; entry {script.relative_to(P.REPO_ROOT).as_posix()} (not launched)")
                 continue
@@ -226,6 +294,7 @@ def check_platform(plat: P.Platform, baseline: Dict[str, Any], static: bool, dat
             add(label, not diffs and ui_ok, detail if not diffs and ui_ok else f"differs from shared source in {diffs or 'UI payload'}")
         except Exception as exc:  # noqa: BLE001 - report any launch failure as a failed check
             add(label, False, f"{type(exc).__name__}: {exc}")
+    checks.extend(check_host_agent(plat, servers, static, data_dir))
     return checks
 
 
@@ -343,7 +412,7 @@ def run(static: bool = False) -> Dict[str, Any]:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Verify five-platform parity for PaperOrchestra Studio plugins.")
+    ap = argparse.ArgumentParser(description="Verify platform parity (five platforms plus Muse) for PaperOrchestra Studio plugins.")
     ap.add_argument("--json", action="store_true", help="print the full report as JSON")
     ap.add_argument("--static", action="store_true", help="do not launch the MCP servers")
     ap.add_argument("--strict", action="store_true", help="treat skipped checks (missing python3/node) as failures")

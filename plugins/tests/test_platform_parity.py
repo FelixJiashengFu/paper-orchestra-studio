@@ -20,7 +20,8 @@ class PlatformParityTest(unittest.TestCase):
         cls.report = verify_platforms.run(static=False)
 
     def test_five_platforms_registered(self):
-        self.assertEqual(sorted(P.PLATFORMS), ["antigravity", "claude-code", "codex", "qoder", "workbuddy"])
+        # The original five, plus Muse (added later; nothing was removed).
+        self.assertEqual(sorted(P.PLATFORMS), ["antigravity", "claude-code", "codex", "muse", "qoder", "workbuddy"])
 
     def test_bundles_match_shared_source(self):
         self.assertEqual(sync_platforms.drift(), [])
@@ -58,15 +59,45 @@ class PlatformParityTest(unittest.TestCase):
             key: sorted(p.name for p in (plat.root / "skills").iterdir() if (p / "SKILL.md").is_file())
             for key, plat in P.PLATFORMS.items()
         }
-        first = next(iter(sets.values()))
+        shared = list(P.shared_skill_names())
         for key, names in sets.items():
-            self.assertEqual(names, first, key)
-        self.assertEqual(first, list(P.shared_skill_names()))
+            # A platform may add its own skills (Muse: po-muse-host) but never drop a shared one.
+            self.assertEqual(names, sorted(shared + list(P.PLATFORMS[key].extra_skills)), key)
 
     def test_minimal_agent_keeps_body_and_drops_extra_keys(self):
         src = "---\nname: a\ndescription: >-\n  two\n  lines\nmodel: inherit\ncolor: blue\n---\n\nBody\n"
         self.assertEqual(sync_platforms.minimal_agent(src), "---\nname: a\ndescription: >-\n  two\n  lines\n---\n\nBody\n")
 
+
+    def test_only_muse_turns_host_agent_mode_on(self):
+        for key, plat in self.report["platforms"].items():
+            names = [c["name"] for c in plat["checks"]]
+            if key == "muse":
+                self.assertTrue(any("`muse`-only mode" in n for n in names), names)
+            elif key in P.PLATFORMS:
+                self.assertIn("host-agent mode is off (providers come from .env)", names, key)
+
+    def test_muse_launcher_env_file(self):
+        import importlib.util
+        import os
+        import tempfile
+
+        spec = importlib.util.spec_from_file_location("muse_launcher", P.PLATFORMS["muse"].root / "server" / "muse_launcher.py")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "paper-orchestra.env"
+            path.write_text("# comment\nPO_TEST_MUSE_A=one\nPO_TEST_MUSE_B='two words'\nbad line\n1BAD=x\n", encoding="utf-8")
+            os.environ["PO_TEST_MUSE_A"] = "kept"
+            try:
+                mod.load_env_file(path)
+                self.assertEqual(os.environ["PO_TEST_MUSE_A"], "kept")  # the environment wins
+                self.assertEqual(os.environ["PO_TEST_MUSE_B"], "two words")
+                self.assertNotIn("1BAD", os.environ)
+            finally:
+                os.environ.pop("PO_TEST_MUSE_A", None)
+                os.environ.pop("PO_TEST_MUSE_B", None)
+            mod.load_env_file(Path(tmp) / "missing.env")  # no file: no error
 
     def test_pane_mod_is_checked(self):
         pane = self.report["platforms"]["claude-code-pane"]

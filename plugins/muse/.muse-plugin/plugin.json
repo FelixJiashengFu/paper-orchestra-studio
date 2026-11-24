@@ -1,0 +1,101 @@
+{
+  "schemaVersion": 1,
+  "name": "paper-orchestra-studio",
+  "displayName": "PaperOrchestra Studio",
+  "version": "1.2.0",
+  "description": "End-to-end AI scientific paper workbench: multi-agent paper pipeline, 19 venue LaTeX templates, XeLaTeX/SyncTeX workbench, 8-source literature graph, Research Studio SOPs, figure studio, Nature and Lean 4 audits, reviewer response, venue preflight, claim-evidence audit, talk and poster kits, HTML/Word/PDF export and SSH/GPU management. Muse edition: every model call runs on your own Muse sign-in, no other LLM API.",
+  "compat": {
+    "source": "native",
+    "manifestDir": ".muse-plugin"
+  },
+  "capabilities": {
+    "skills": [
+      {
+        "id": "paper-orchestra-studio",
+        "path": "skills/paper-orchestra-studio/SKILL.md",
+        "enabledDefault": true
+      },
+      {
+        "id": "po-claim-evidence-audit",
+        "path": "skills/po-claim-evidence-audit/SKILL.md",
+        "enabledDefault": true
+      },
+      {
+        "id": "po-compute-memory",
+        "path": "skills/po-compute-memory/SKILL.md",
+        "enabledDefault": true
+      },
+      {
+        "id": "po-figure-studio",
+        "path": "skills/po-figure-studio/SKILL.md",
+        "enabledDefault": true
+      },
+      {
+        "id": "po-literature-graph",
+        "path": "skills/po-literature-graph/SKILL.md",
+        "enabledDefault": true
+      },
+      {
+        "id": "po-muse-host",
+        "path": "skills/po-muse-host/SKILL.md",
+        "enabledDefault": true
+      },
+      {
+        "id": "po-paper-pipeline",
+        "path": "skills/po-paper-pipeline/SKILL.md",
+        "enabledDefault": true
+      },
+      {
+        "id": "po-research-studio",
+        "path": "skills/po-research-studio/SKILL.md",
+        "enabledDefault": true
+      },
+      {
+        "id": "po-reviewer-response",
+        "path": "skills/po-reviewer-response/SKILL.md",
+        "enabledDefault": true
+      },
+      {
+        "id": "po-submission-auditor",
+        "path": "skills/po-submission-auditor/SKILL.md",
+        "enabledDefault": true
+      },
+      {
+        "id": "po-submission-latex",
+        "path": "skills/po-submission-latex/SKILL.md",
+        "enabledDefault": true
+      },
+      {
+        "id": "po-talk-poster",
+        "path": "skills/po-talk-poster/SKILL.md",
+        "enabledDefault": true
+      },
+      {
+        "id": "po-venue-preflight",
+        "path": "skills/po-venue-preflight/SKILL.md",
+        "enabledDefault": true
+      }
+    ],
+    "commands": [],
+    "hooks": [],
+    "mcpServers": [
+      {
+        "id": "paper-orchestra-studio",
+        "transport": "stdio",
+        "command": [
+          "python3",
+          "server/muse_launcher.py"
+        ]
+      },
+      {
+        "id": "paper-orchestra-bridge",
+        "transport": "stdio",
+        "command": [
+          "node",
+          "mcp/server.mjs"
+        ]
+      }
+    ],
+    "reminders": []
+  }
+}

@@ -322,6 +322,42 @@ def _clean_env(name: str) -> str:
     return val
 
 
+_HOST_AGENT_NOTE = (
+    "\n7. Host-agent mode is ON (PO_HOST_AGENT={name}): every LLM step of the backend (paper runs, SOPs, data "
+    "analysis, figures, LaTeX copilot) is sent to the signed-in `{name}` CLI and to no other LLM API, whatever "
+    "keys `.env` holds. Do not ask the user for provider API keys, and do not pass other providers' model names; "
+    "leave model fields on `auto`. Each backend LLM call spends the user's own {name} allowance, so say so before "
+    "starting a full paper run, and prefer writing short pieces yourself in this conversation."
+)
+
+
+def _host_agent() -> str:
+    """The agent CLI every backend LLM call is routed to (PO_HOST_AGENT), or ""."""
+    val = _clean_env("PO_HOST_AGENT").lower()
+    return "" if val in ("", "0", "off", "none", "no", "false") else val
+
+
+def _host_agent_info() -> Dict[str, Any]:
+    name = _host_agent()
+    if not name:
+        return {"enabled": False, "name": ""}
+    explicit = _clean_env(f"{name.upper()}_CLI")
+    cli = os.path.expanduser(explicit) if explicit else (_which_tool(name) or "")
+    strict = _clean_env("PO_HOST_AGENT_STRICT").lower() not in ("0", "off", "false", "no")
+    return {
+        "enabled": True,
+        "name": name,
+        "strict": strict,
+        "cliPath": cli,
+        "cliFound": bool(cli and os.path.isfile(cli) and os.access(cli, os.X_OK)),
+        "model": _clean_env(f"{name.upper()}_DEFAULT_MODEL") or "default (the CLI's own setting)",
+        "note": (
+            f"All backend LLM calls run on the signed-in `{name}` CLI"
+            + (" and no other LLM API is called." if strict else "; explicit model names still reach their own providers.")
+        ),
+    }
+
+
 class RuntimeContext:
     """Resolved environment, SQLite DB connection helper, and secret redactor."""
 
@@ -1319,6 +1355,7 @@ def tool_check_environment(ctx: RuntimeContext, args: Dict[str, Any]) -> Dict[st
         "defaultHtmlDir": html_dir,
         "defaultHtmlDirReady": bool(html_dir and os.path.isdir(html_dir)),
         "googleDriveEnvDir": gdrive_dir,
+        "hostAgent": _host_agent_info(),
         "tools": tools,
         "counts": counts,
     }
@@ -4649,6 +4686,8 @@ _BUILTIN_PROVIDERS: List[Tuple[str, str, Tuple[str, ...], Tuple[str, ...], bool,
     ("groq", "openai", ("GROQ_API_KEY",), (), False, "llama-3.3-70b-versatile"),
     ("mistral", "openai", ("MISTRAL_API_KEY",), (), False, "mistral-large-latest"),
     ("together", "openai", ("TOGETHER_API_KEY",), (), False, ""),
+    # An agent CLI on the user's own sign-in (no key): configured when PO_HOST_AGENT names it.
+    ("muse", "cli", (), ("meta", "muse-code", "musecode"), False, ""),
     ("ollama", "openai", ("OLLAMA_API_KEY",), (), True, ""),
     ("lmstudio", "openai", ("LMSTUDIO_API_KEY",), (), True, ""),
     ("vllm", "openai", ("VLLM_API_KEY",), (), True, ""),
@@ -5069,6 +5108,8 @@ def tool_settings_and_setup(ctx: RuntimeContext, args: Dict[str, Any]) -> Dict[s
             base_var = f"{name.upper()}_BASE_URL"
             has_base = _env_value_nonempty(ctx, base_var)
             configured = bool(has_key or (key_opt and has_base))
+            if kind == "cli":
+                configured = _host_agent() == name or _env_value_nonempty(ctx, f"{name.upper()}_CLI")
             builtins_status.append({
                 "name": name,
                 "kind": kind,
@@ -5089,6 +5130,7 @@ def tool_settings_and_setup(ctx: RuntimeContext, args: Dict[str, Any]) -> Dict[s
             "builtins": builtins_status,
             "providersJson": prov_check,
             "scholarEnv": scholar_status,
+            "hostAgent": _host_agent_info(),
             "setupScripts": {k: v for k, v in integ.items() if k in ("setupBackendSh", "setupBackendPs1")},
         }
 
@@ -6122,7 +6164,7 @@ def _handle_request(ctx: RuntimeContext, req: Dict[str, Any]) -> Optional[Dict[s
                     "prompts": {"listChanged": False},
                 },
                 "serverInfo": {"name": SERVER_NAME, "version": SERVER_VERSION},
-                "instructions": SERVER_INSTRUCTIONS,
+                "instructions": SERVER_INSTRUCTIONS + (_HOST_AGENT_NOTE.format(name=_host_agent()) if _host_agent() else ""),
             }
             return {"jsonrpc": "2.0", "id": req_id, "result": result}
 

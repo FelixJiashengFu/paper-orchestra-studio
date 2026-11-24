@@ -38,8 +38,12 @@ from utils.openai_utils import (
 from utils import usage_tracker
 from utils.image_fit import fit_with_limits
 from utils.pdf_utils import load_paper
+from utils.agent_cli_utils import call_agent_cli, find_cli
 from utils.providers import (
+    CLI_KIND,
     ProviderSpec,
+    host_agent,
+    host_agent_strict,
     config_value,
     configured_providers,
     get_provider,
@@ -135,6 +139,13 @@ def resolve_task_model(requested_model: str, task: str) -> str:
     if cleaned and cleaned.lower() != "auto":
         return cleaned
 
+    # Host-agent mode (PO_HOST_AGENT=muse): every step runs on the host agent's
+    # own quota. Strict (the default) puts it before any per-task pin; with
+    # PO_HOST_AGENT_STRICT=0 the pins below still win.
+    host = host_agent()
+    if host and host_agent_strict():
+        return f"{host}:default"
+
     parent = TASK_PARENTS.get(task)
     if parent:
         return _task_override(task) or resolve_task_model("auto", parent)
@@ -142,6 +153,8 @@ def resolve_task_model(requested_model: str, task: str) -> str:
     override = _task_override(task) or _global_auto_model()
     if override:
         return override
+    if host:
+        return f"{host}:default"
 
     has_claude = has_anthropic_credentials()
     has_ds = has_deepseek_credentials()
@@ -304,6 +317,8 @@ def literature_search_backend() -> tuple[str, str]:
     with search queries from the literature_query model. Other platforms have
     no web search here; they fall back to that path too (with a warning).
     """
+    if host_agent_strict():
+        return "", ""  # no other LLM API: papers come from the scholarly APIs
     value = _task_override("literature_search")
     if value.lower() in _SEARCH_OFF:
         return "", ""
@@ -330,6 +345,8 @@ def literature_search_backend() -> tuple[str, str]:
 
 
 def _usable(spec: ProviderSpec) -> bool:
+    if spec.kind == CLI_KIND:
+        return bool(find_cli(spec.name))
     # Key-optional endpoints (Ollama, LM Studio, vLLM) work on their default
     # localhost URL even when <NAME>_BASE_URL is not set.
     return spec.has_credentials() or spec.key_optional
@@ -346,12 +363,22 @@ def credential_problems(model_refs: List[str]) -> List[str]:
     refs = [str(r or "").strip() or "auto" for r in model_refs]
     for ref in dict.fromkeys(r for r in refs if r.lower() != "auto"):
         spec, _ = resolve_model(ref)
+        if spec.kind == CLI_KIND and not _usable(spec):
+            problems.append(f"model '{ref}' -> '{spec.name}' CLI is not installed "
+                            f"(install Muse Code and sign in, or set {spec.name.upper()}_CLI).")
+            continue
         if not _usable(spec):
             envs = " / ".join(spec.api_key_env) or f"{spec.name.upper()}_API_KEY"
             problems.append(f"model '{ref}' -> provider '{spec.name}' has no API key (set {envs}).")
     if any(r.lower() == "auto" for r in refs):
         for task, model in describe_auto_routing().items():
             spec, _ = resolve_model(model)
+            if spec.kind == CLI_KIND:
+                if not _usable(spec):
+                    problems.append(f"auto: every task runs on the '{spec.name}' CLI, which is not installed "
+                                    f"(install Muse Code and sign in, or set {spec.name.upper()}_CLI).")
+                    break
+                continue
             if not _usable(spec):
                 problems.append(
                     f"auto: task '{task}' resolved to '{model}', but provider '{spec.name}' has no API key. "
@@ -438,6 +465,17 @@ def _dispatch_parts(
             "type": "text",
             "text": f"[Note: {n_images} image attachment(s) omitted because the selected model is text-only.]",
         }]
+
+    if spec.kind == CLI_KIND:
+        # An agent CLI on the user's own sign-in (Muse Code): text in, text out.
+        return call_agent_cli(
+            prompt="\n".join(p["text"] for p in parts if p["type"] == "text" and p.get("text")),
+            model_name=model,
+            spec_name=spec.name,
+            result_parsing_func=parser,
+            check_parsed_response_not_none=check_parsed_response_not_none,
+            system_prompt=cfg.get("system_instruction"),
+        )
 
     if spec.kind == "anthropic":
         cfg = dict(cfg)
@@ -665,6 +703,8 @@ def resolve_image_model(image_model_name: str) -> str:
     "auto" reached can_generate_images() as a literal model name and every
     diagram silently fell back to Matplotlib.
     """
+    if host_agent_strict():
+        return ""  # no other API: diagrams are drawn with Matplotlib code
     cleaned = (image_model_name or "").strip()
     if cleaned and cleaned.lower() != "auto":
         return cleaned

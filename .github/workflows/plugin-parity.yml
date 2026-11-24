@@ -1,13 +1,13 @@
-name: Plugin parity (5 platforms)
+name: Plugin parity (5 platforms + Muse)
 
-# Fails when the Claude Code, Antigravity, Codex, Qoder and WorkBuddy bundles
+# Fails when the Claude Code, Antigravity, Codex, Qoder, WorkBuddy and Muse bundles
 # stop exposing the same servers, tools, skills and agents.
 on:
   push:
     branches: [main]
-    paths: ["plugins/**", "integrations/qoder-plugin/**", ".claude-plugin/**", ".agents/**", ".codebuddy-plugin/**", ".github/workflows/plugin-parity.yml"]
+    paths: ["plugins/**", "paper-orchestra/utils/**", "integrations/qoder-plugin/**", ".claude-plugin/**", ".agents/**", ".codebuddy-plugin/**", ".github/workflows/plugin-parity.yml"]
   pull_request:
-    paths: ["plugins/**", "integrations/qoder-plugin/**", ".claude-plugin/**", ".agents/**", ".codebuddy-plugin/**", ".github/workflows/plugin-parity.yml"]
+    paths: ["plugins/**", "paper-orchestra/utils/**", "integrations/qoder-plugin/**", ".claude-plugin/**", ".agents/**", ".codebuddy-plugin/**", ".github/workflows/plugin-parity.yml"]
 
 permissions:
   contents: read

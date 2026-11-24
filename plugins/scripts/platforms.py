@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Single source of truth for the five supported agent platforms.
+"""Single source of truth for the supported agent platforms (the original five plus Muse).
 
 Imported by sync_platforms.py, verify_platforms.py and install.py. Standard
 library only, so it runs wherever the MCP server itself runs.
@@ -54,6 +54,14 @@ class Platform:
     tuned_skills: Tuple[str, ...] = ()
     extra_skills: Tuple[str, ...] = ()  # platform-only skills that must be preserved
     host_vars: Dict[str, str] = field(default_factory=dict)  # other placeholders -> test value
+    # "mcpServers": {key: {command, args, env}} file, or "muse-manifest": the
+    # manifest's capabilities.mcpServers list of {id, command: [argv...]}.
+    mcp_format: str = "mcpServers"
+    # Entry script of the Python server relative to root, when the host starts
+    # it through a launcher instead of the shared server file itself.
+    python_entry: str = ""
+    # Backend LLM routing the bundle turns on ("" = the providers in .env).
+    host_agent: str = ""
 
 
 PLATFORMS: Dict[str, Platform] = {
@@ -120,9 +128,29 @@ PLATFORMS: Dict[str, Platform] = {
         marketplace=".codebuddy-plugin/marketplace.json",
         host_vars={"${CODEBUDDY_PLUGIN_DATA}": "{data}"},
     ),
+    # Meta Muse (Muse Code CLI / Muse for Mac). A native Muse plugin has no
+    # `agents` family and no `env` on MCP servers, so the auditor ships as a
+    # skill and the Python server starts through server/muse_launcher.py, which
+    # turns on host-agent mode: every backend LLM call runs on the user's own
+    # Muse sign-in and no other LLM API is called.
+    "muse": Platform(
+        key="muse",
+        label="Meta Muse (Muse Code)",
+        root=PLUGINS_ROOT / "muse",
+        manifests=(".muse-plugin/plugin.json",),
+        mcp_config=".muse-plugin/plugin.json",
+        root_var="",
+        python_server_key="paper-orchestra-studio",
+        bridge_server_key="paper-orchestra-bridge",
+        agents="none",
+        extra_skills=("po-muse-host",),
+        mcp_format="muse-manifest",
+        python_entry="server/muse_launcher.py",
+        host_agent="muse",
+    ),
 }
 
-# Not one of the five agent platforms, but it embeds the same server and UI.
+# Not one of the agent platforms, but it embeds the same server and UI.
 EXTRA_SERVER_TARGETS = (PLUGINS_ROOT / "claude-desktop" / "desktop-extension",)
 
 
