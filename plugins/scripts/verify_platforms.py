@@ -229,6 +229,52 @@ def check_platform(plat: P.Platform, baseline: Dict[str, Any], static: bool, dat
     return checks
 
 
+def check_coder_recipe(baseline: Dict[str, Any], static: bool, data_dir: Path) -> List[Check]:
+    """Coder (coder.com) has no plugin format of its own; verify the workspace recipe instead."""
+    checks: List[Check] = []
+    folder = P.PLUGINS_ROOT / "coder"
+    script = folder / "install-in-workspace.sh"
+    template = folder / "paper-orchestra.tf"
+    bash = shutil.which("bash")
+    if not script.is_file():
+        checks.append(("install script", "fail", "plugins/coder/install-in-workspace.sh is missing"))
+    elif b"\r\n" in script.read_bytes():
+        checks.append(("install script", "fail", "has CRLF line endings; bash cannot run it"))
+    elif bash and os.name != "nt":
+        proc = subprocess.run([bash, "-n", str(script)], capture_output=True, text=True)
+        checks.append(("install script syntax (bash -n)", "pass" if proc.returncode == 0 else "fail", proc.stderr.strip()[:200]))
+    else:
+        checks.append(("install script", "pass", "present (bash syntax check runs on Linux and macOS)"))
+    try:
+        text = template.read_text(encoding="utf-8")
+        po_dir = re.search(r'po_dir\s*=\s*"([^"]+)"', text).group(1)
+        block = re.search(r"mcp\s*=\s*<<-EOF\n(.*?)\n\s*EOF", text, re.DOTALL).group(1)
+        servers = json.loads(block.replace("${local.po_dir}", po_dir))["mcpServers"]
+    except (OSError, AttributeError, ValueError, KeyError) as exc:
+        checks.append(("template mcp block", "fail", repr(exc)))
+        return checks
+    for kind, key in (("python", "paper-orchestra-studio"), ("bridge", "paper-orchestra-bridge")):
+        label = f"template MCP server `{key}` ({kind})"
+        try:
+            entry = servers[key]
+            target = P.REPO_ROOT / os.path.relpath(entry["args"][0], po_dir)
+            if not target.is_file():
+                raise RuntimeError(f"{entry['args'][0]} does not exist in the repository")
+            command = [sys.executable if kind == "python" else entry["command"], str(target)]
+            if static:
+                checks.append((label, "pass", f"points at {target.relative_to(P.REPO_ROOT).as_posix()} (not launched)"))
+            elif shutil.which(command[0]) is None:
+                checks.append((label, "skip", f"`{command[0]}` is not installed on this machine"))
+            else:
+                env = dict(os.environ, PAPER_ORCHESTRA_PLUGIN_DATA=str(data_dir), PAPER_ORCHESTRA_DB=str(data_dir / "verify.db"))
+                fp = fingerprint(command, target.parent, env)
+                same = all(fp.get(k) == v for k, v in baseline[kind].items())
+                checks.append((label, "pass" if same else "fail", f"{len(fp['tools'])} tools" if same else "differs from shared source"))
+        except Exception as exc:  # noqa: BLE001
+            checks.append((label, "fail", f"{type(exc).__name__}: {exc}"))
+    return checks
+
+
 def run(static: bool = False) -> Dict[str, Any]:
     with tempfile.TemporaryDirectory(prefix="po-verify-", ignore_cleanup_errors=True) as tmp:
         data_dir = Path(tmp)
@@ -246,6 +292,12 @@ def run(static: bool = False) -> Dict[str, Any]:
                 "ok": all(c[1] != "fail" for c in checks),
                 "checks": [{"name": n, "status": s, "detail": d} for n, s, d in checks],
             }
+        coder = check_coder_recipe(baseline, static, data_dir)
+        report["platforms"]["coder"] = {
+            "label": "Coder workspaces (deployment recipe for Claude Code / Codex)",
+            "ok": all(c[1] != "fail" for c in coder),
+            "checks": [{"name": n, "status": s, "detail": d} for n, s, d in coder],
+        }
     report["ok"] = all(p["ok"] for p in report["platforms"].values())
     report["skipped"] = sum(c["status"] == "skip" for p in report["platforms"].values() for c in p["checks"])
     return report

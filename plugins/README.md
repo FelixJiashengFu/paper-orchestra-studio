@@ -12,12 +12,14 @@ Five agent platforms, one feature set. Every bundle is generated from `plugins/s
 | **Qoder** | `integrations/qoder-plugin/` | `.qoder-plugin/plugin.json` | `.mcp.json` (`${QODER_PLUGIN_ROOT}`) | 12 | agent | (install by path or zip) |
 | **WorkBuddy / CodeBuddy** | `plugins/workbuddy/` | `.codebuddy-plugin/plugin.json` | `.mcp.json` (`${CODEBUDDY_PLUGIN_ROOT}`) | 12 | agent | `.codebuddy-plugin/marketplace.json` |
 
+**Coder (coder.com) workspaces** have no plugin format of their own: they run Claude Code or Codex remotely. `plugins/coder/` holds a workspace install script and a template snippet that load the same bundles there; the verifier checks that recipe too.
+
 The guardrails that Antigravity loads from `rules/AGENTS.md` are also sent by the server in its MCP `initialize` instructions, so hosts whose plugin format has no always-on rules receive them too.
 
 ### Verify all five
 
 ```bash
-python3 plugins/scripts/verify_platforms.py          # 38 checks: manifests, files, skills, agents, marketplaces, live MCP handshakes
+python3 plugins/scripts/verify_platforms.py          # 41 checks: manifests, files, skills, agents, marketplaces, live MCP handshakes
 python3 -m unittest discover -s plugins/tests -v     # same checks as unit tests (also run in CI: .github/workflows/plugin-parity.yml)
 ```
 
