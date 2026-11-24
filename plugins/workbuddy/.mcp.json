@@ -1,0 +1,23 @@
+{
+  "mcpServers": {
+    "paper-orchestra-studio": {
+      "type": "stdio",
+      "command": "python3",
+      "args": [
+        "${CODEBUDDY_PLUGIN_ROOT}/server/paper_orchestra_mcp.py"
+      ],
+      "cwd": "${CODEBUDDY_PLUGIN_ROOT}",
+      "env": {
+        "PAPER_ORCHESTRA_PLUGIN_DATA": "${CODEBUDDY_PLUGIN_DATA}"
+      }
+    },
+    "paper-orchestra-bridge": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "${CODEBUDDY_PLUGIN_ROOT}/mcp/server.mjs"
+      ],
+      "cwd": "${CODEBUDDY_PLUGIN_ROOT}"
+    }
+  }
+}

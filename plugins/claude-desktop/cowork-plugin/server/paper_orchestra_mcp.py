@@ -15,8 +15,9 @@
 
 """Zero-dependency MCP stdio server for PaperOrchestra Studio.
 
-Works with Antigravity, Claude Desktop (Chat / Cowork / MCPB Extension),
-and Claude Code without requiring third-party MCP SDK packages at startup.
+Works with Claude Code, Claude Desktop (Chat / Cowork / MCPB Extension),
+Antigravity, OpenAI Codex, Qoder and WorkBuddy / CodeBuddy without requiring
+third-party MCP SDK packages at startup.
 All protocol messages flow over newline-delimited JSON-RPC 2.0 on stdout;
 all diagnostics and child stdout redirection go strictly to stderr.
 """
@@ -46,8 +47,25 @@ import uuid
 import zipfile
 
 SERVER_NAME = "paper-orchestra-studio"
-SERVER_VERSION = "1.1.0"
+SERVER_VERSION = "1.2.0"
 SUPPORTED_PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
+
+# Sent in the MCP `initialize` result so that every host (including those whose
+# plugin format cannot ship always-on rules) receives the same guardrails.
+SERVER_INSTRUCTIONS = (
+    "PaperOrchestra Studio guardrails for all `po_*` tools:\n"
+    "1. Provenance: keep the tags \u3010\u539f\u6587\u3011 (direct evidence with page/section/figure), "
+    "\u3010\u5ba1\u8bfb\u63a8\u5bfc\u3011 (your own derivation or check) and \u3010\u4e0d\u53ef\u6838\u5b9e\u3011 "
+    "(missing or unreadable evidence). Never invent DOIs, citations, metrics, grant numbers or results.\n"
+    "2. Secrets: never print or request raw `.env` / `providers.json` key values; inspect readiness with "
+    "`po_check_environment`, `po_check_providers` and `po_settings_and_setup`.\n"
+    "3. Conflict-safe edits: pass `expected_updated_at` to `po_projects(update)` and `expected_mtime_ms` to "
+    "`po_latex_workbench(save)` after an `open`/`read`.\n"
+    "4. Long runs are asynchronous: return the `job_id` / `run_dir` and poll with `po_job_manage` instead of blocking.\n"
+    "5. Never overwrite user files unexpectedly; honour `PO_DEFAULT_PDF_DIR` / `PO_DEFAULT_HTML_DIR` and explicit paths.\n"
+    "6. When the user wants a visual interface, offer `po_open_workbench` or `po_open_tool_tree`; hosts without "
+    "MCP Apps support still receive a text summary."
+)
 
 _SECRET_KEY_RE = re.compile(r"(KEY|SECRET|TOKEN|PASSWORD)", re.IGNORECASE)
 _SECRET_TOKEN_RES = (
@@ -5083,6 +5101,7 @@ def _handle_request(ctx: RuntimeContext, req: Dict[str, Any]) -> Optional[Dict[s
                     "prompts": {"listChanged": False},
                 },
                 "serverInfo": {"name": SERVER_NAME, "version": SERVER_VERSION},
+                "instructions": SERVER_INSTRUCTIONS,
             }
             return {"jsonrpc": "2.0", "id": req_id, "result": result}
 

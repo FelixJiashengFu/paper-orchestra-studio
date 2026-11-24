@@ -7,6 +7,8 @@ import os
 from pathlib import Path
 import shutil
 import stat
+import subprocess
+import sys
 import tempfile
 import zipfile
 
@@ -48,6 +50,11 @@ def _zip_dir_via_tmp(src_dir: Path, out_file: Path) -> int:
 def main() -> int:
     claude_dir = Path(__file__).resolve().parents[1]
     plugins_root = claude_dir.parent
+
+    # Keep every platform bundle (Claude, Antigravity, Codex, Qoder, WorkBuddy) in step first.
+    sync_script = plugins_root / "scripts" / "sync_platforms.py"
+    if sync_script.is_file():
+        subprocess.run([sys.executable, str(sync_script)], check=True)
     shared_server = plugins_root / "shared" / "mcp_server" / "paper_orchestra_mcp.py"
     if not shared_server.is_file():
         raise FileNotFoundError(f"Shared server not found: {shared_server}")

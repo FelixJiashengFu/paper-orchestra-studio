@@ -1,0 +1,35 @@
+name: Plugin parity (5 platforms)
+
+# Fails when the Claude Code, Antigravity, Codex, Qoder and WorkBuddy bundles
+# stop exposing the same servers, tools, skills and agents.
+on:
+  push:
+    branches: [main]
+    paths: ["plugins/**", "integrations/qoder-plugin/**", ".claude-plugin/**", ".agents/**", ".codebuddy-plugin/**", ".github/workflows/plugin-parity.yml"]
+  pull_request:
+    paths: ["plugins/**", "integrations/qoder-plugin/**", ".claude-plugin/**", ".agents/**", ".codebuddy-plugin/**", ".github/workflows/plugin-parity.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  parity:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Bundles are in sync with plugins/shared
+        run: python plugins/scripts/sync_platforms.py --check
+      - name: Static + live parity check
+        run: python plugins/scripts/verify_platforms.py --strict
+      - name: Unit tests
+        run: python -m unittest discover -s plugins/tests -v

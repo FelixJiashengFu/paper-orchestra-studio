@@ -8,6 +8,12 @@
       "env": {
         "PAPER_ORCHESTRA_PLUGIN_DATA": "${PLUGIN_DATA}"
       }
+    },
+    "paper_orchestra_bridge": {
+      "command": "node",
+      "args": [
+        "${PLUGIN_ROOT}/mcp/server.mjs"
+      ]
     }
   }
 }

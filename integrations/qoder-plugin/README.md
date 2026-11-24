@@ -2,6 +2,15 @@
 
 This Qoder Desktop plugin connects Qoder to the local PaperOrchestra Studio application. It reuses Studio's projects, model routing, providers, literature library, research workflows, figures, LaTeX tools, audits and exports.
 
+## Two MCP servers, same feature set as the other platforms
+
+Since v1.2.0 this plugin registers two servers in `.mcp.json`:
+
+- `paper_orchestra_studio` (Node, unchanged): the bridge to the running Studio desktop app described below.
+- `paper_orchestra` (Python): the shared zero-dependency server with the 22 `po_*` tools, 6 resources and 5 prompts that the Claude Code, Antigravity, Codex and WorkBuddy bundles use. It works without the desktop app running and needs `python3` on `PATH`.
+
+It also ships the 11 shared `po-*` workflow skills and the `paper-orchestra-auditor` agent. Run `python3 plugins/scripts/verify_platforms.py` from the repository root to check parity.
+
 ## Requirements
 
 - Qoder Desktop with local Plugin support.
@@ -13,7 +22,7 @@ The standard Windows installation is `%LOCALAPPDATA%\PaperOrchestra Studio\paper
 
 ## Use
 
-Install `paper-orchestra-studio-0.1.0-qoder.zip` as a local Plugin. In a new Qoder session, make sure the Plugin and its `paper-orchestra-studio` Skill are selected for the active Agent. Then ask, for example:
+Install `paper-orchestra-studio-1.2.0-qoder.zip` as a local Plugin. In a new Qoder session, make sure the Plugin and its `paper-orchestra-studio` Skill are selected for the active Agent. Then ask, for example:
 
 - List my PaperOrchestra Studio projects.
 - Check Studio's templates, model routing and TeX environment.

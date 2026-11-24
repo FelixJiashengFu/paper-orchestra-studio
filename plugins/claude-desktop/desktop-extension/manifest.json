@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "paper-orchestra-studio",
   "display_name": "PaperOrchestra Studio",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Local AI scientific paper pipeline with Best-Paper L1-L8 narrative routing, 19 LaTeX venue templates, Overleaf-style side-by-side XeLaTeX & bidirectional SyncTeX workbench, abstract field diagnosis & sentence change-table copilot, author report.md delivery, Desktop TCP bridge, Nature + award-paper style/figure & Lean 4 audits, 8-source literature graph, 5+5 SOP skills, region-circle figure studio, interactive HTML/Word/PDF export, and SSH/GPU management.",
   "author": {
     "name": "FelixJiashengFu",

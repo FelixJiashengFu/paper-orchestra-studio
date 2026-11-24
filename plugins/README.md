@@ -1,8 +1,49 @@
-# PaperOrchestra Studio Plugins (Antigravity & Claude Desktop)
+# PaperOrchestra Studio Plugins (Claude Code · Antigravity · Codex · Qoder · WorkBuddy)
+
+Five agent platforms, one feature set. Every bundle is generated from `plugins/shared/` and ships the same **zero-dependency Python MCP server** (`shared/mcp_server/paper_orchestra_mcp.py`, v1.2.0, **22 model-visible tools + 1 app-only snapshot tool**, **6 resources** including 2 SEP-1865 MCP Apps, **5 prompts**), the same **Studio desktop bridge server** (71 tools, Node), and the same **12 workflow skills**.
+
+## Five-Platform Parity
+
+| Platform | Bundle | Manifest | MCP registration | Skills | Auditor subagent | Marketplace file (repo root) |
+| --- | --- | --- | --- | --- | --- | --- |
+| **Claude Code** (and Claude Desktop Cowork) | `plugins/claude-desktop/cowork-plugin/` | `.claude-plugin/plugin.json` | `.mcp.json` (`${CLAUDE_PLUGIN_ROOT}`) | 12 | agent | `.claude-plugin/marketplace.json` |
+| **Google Antigravity** | `plugins/antigravity/` | `plugin.json` | `mcp_config.json` (`${PLUGIN_ROOT}`) | 12 | agent | (install by path) |
+| **OpenAI Codex** | `plugins/codex/` | `.codex-plugin/plugin.json` | `.mcp.json` (relative `cwd`) | 12 | as skill `po-submission-auditor` | `.agents/plugins/marketplace.json` |
+| **Qoder** | `integrations/qoder-plugin/` | `.qoder-plugin/plugin.json` | `.mcp.json` (`${QODER_PLUGIN_ROOT}`) | 12 | agent | (install by path or zip) |
+| **WorkBuddy / CodeBuddy** | `plugins/workbuddy/` | `.codebuddy-plugin/plugin.json` | `.mcp.json` (`${CODEBUDDY_PLUGIN_ROOT}`) | 12 | agent | `.codebuddy-plugin/marketplace.json` |
+
+The guardrails that Antigravity loads from `rules/AGENTS.md` are also sent by the server in its MCP `initialize` instructions, so hosts whose plugin format has no always-on rules receive them too.
+
+### Verify all five
+
+```bash
+python3 plugins/scripts/verify_platforms.py          # 38 checks: manifests, files, skills, agents, marketplaces, live MCP handshakes
+python3 -m unittest discover -s plugins/tests -v     # same checks as unit tests (also run in CI: .github/workflows/plugin-parity.yml)
+```
+
+The check starts both MCP servers of every bundle the way the host would (placeholders resolved to the bundle folder) and compares the reported tools, resources, prompts and UI payloads with the shared source. It does not prove that a host application loads the bundle; after installing, ask the agent to call `po_check_environment` as a smoke test.
+
+### Change something once, ship it five times
+
+```bash
+# edit plugins/shared/{mcp_server,skills,agents,ui_src} ...
+python3 plugins/scripts/sync_platforms.py            # copy into all five bundles (never deletes)
+python3 plugins/scripts/install.py --platform all    # build per-platform zips in plugins/dist/ and print install steps
+```
+
+### Workflow skills (identical on all five)
+
+`po-paper-pipeline`, `po-research-studio`, `po-figure-studio`, `po-literature-graph`, `po-submission-latex`, `po-compute-memory`, `paper-orchestra-studio` (desktop bridge), and new in v1.2.0: `po-reviewer-response` (review triage, point-by-point response letter, latexdiff revision), `po-venue-preflight` (venue shortlist, desk-reject preflight, page-limit fitting, camera-ready, cover letter), `po-claim-evidence-audit` (claim ledger, number consistency, reproducibility checklist, data-availability and AI-use statements), `po-talk-poster` (slides, speaker script, Q&A rehearsal, poster, outreach text), `po-submission-auditor` (the auditor subagent as a skill).
+
+---
+
+<details><summary>Previous introduction (kept for reference)</summary>
 
 Antigravity and Claude Desktop use distinct native plugin manifest formats, so this repository ships **two dedicated native plugin bundles** powered by **one shared zero-dependency Python MCP server** (`shared/mcp_server/paper_orchestra_mcp.py`, v1.1.0, exposing **22 model-visible tools + 1 app-only snapshot tool**, **6 resources** including 2 SEP-1865 MCP Apps, and **5 prompts** across 100% of PaperOrchestra Studio's capabilities).
 
-## Platform Matrix
+</details>
+
+## Bundle Formats (incl. Claude Desktop Extension and Chat config)
 
 | Platform | Bundle Format | Location | Included Components |
 | --- | --- | --- | --- |
