@@ -15,6 +15,24 @@
         "ProgramFiles",
         "ProgramFiles(x86)"
       ]
+    },
+    "paper_orchestra": {
+      "command": "python3",
+      "args": [
+        "${QODER_PLUGIN_ROOT}/server/paper_orchestra_mcp.py"
+      ],
+      "cwd": "${QODER_PLUGIN_ROOT}",
+      "timeout": 300000,
+      "env_vars": [
+        "PAPER_ORCHESTRA_REPO",
+        "PAPER_ORCHESTRA_PYTHON",
+        "PAPER_ORCHESTRA_DB",
+        "PAPER_ORCHESTRA_PLUGIN_DATA",
+        "PO_DEFAULT_PDF_DIR",
+        "PO_DEFAULT_HTML_DIR",
+        "PO_GOOGLE_DRIVE_DIR",
+        "APPDATA"
+      ]
     }
   }
 }

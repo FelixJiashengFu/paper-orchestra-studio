@@ -1,0 +1,34 @@
+{
+  "name": "paper-orchestra-studio",
+  "owner": {
+    "name": "FelixJiashengFu",
+    "url": "https://github.com/FelixJiashengFu"
+  },
+  "description": "PaperOrchestra Studio: local AI scientific paper workbench for Claude Code.",
+  "plugins": [
+    {
+      "name": "paper-orchestra-studio",
+      "source": "./plugins/claude-desktop/cowork-plugin",
+      "description": "End-to-end AI scientific paper workbench: multi-agent paper pipeline, 19 venue LaTeX templates, XeLaTeX/SyncTeX workbench, 8-source literature graph, Research Studio SOPs, figure studio, Nature and Lean 4 audits, reviewer response, venue preflight, claim-evidence audit, talk and poster kits, HTML/Word/PDF export and SSH/GPU management.",
+      "version": "1.2.0",
+      "category": "productivity",
+      "tags": [
+        "research",
+        "latex",
+        "academic-writing"
+      ]
+    },
+    {
+      "name": "paper-orchestra-pane",
+      "source": "./plugins/claude-code-pane",
+      "description": "Sidebar pane for Claude Code (/po-pane): Studio status, projects, runs, jobs, literature library and environment checks, driven by the paper-orchestra-studio plugin's tools.",
+      "version": "0.2.1",
+      "category": "productivity",
+      "tags": [
+        "research",
+        "latex",
+        "academic-writing"
+      ]
+    }
+  ]
+}

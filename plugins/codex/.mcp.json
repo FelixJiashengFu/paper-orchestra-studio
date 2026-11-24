@@ -1,0 +1,40 @@
+{
+  "mcpServers": {
+    "paper_orchestra": {
+      "command": "python3",
+      "args": [
+        "./server/paper_orchestra_mcp.py"
+      ],
+      "cwd": ".",
+      "env_vars": [
+        "PAPER_ORCHESTRA_REPO",
+        "PAPER_ORCHESTRA_PYTHON",
+        "PAPER_ORCHESTRA_DB",
+        "PAPER_ORCHESTRA_PLUGIN_DATA",
+        "PO_DEFAULT_PDF_DIR",
+        "PO_DEFAULT_HTML_DIR",
+        "PO_GOOGLE_DRIVE_DIR",
+        "APPDATA"
+      ],
+      "startup_timeout_sec": 30,
+      "tool_timeout_sec": 300
+    },
+    "paper_orchestra_studio": {
+      "command": "node",
+      "args": [
+        "./server.mjs"
+      ],
+      "cwd": "./mcp",
+      "env_vars": [
+        "PAPER_ORCHESTRA_STUDIO_DATA_DIR",
+        "PAPER_ORCHESTRA_STUDIO_APP",
+        "LOCALAPPDATA",
+        "APPDATA",
+        "ProgramFiles",
+        "ProgramFiles(x86)"
+      ],
+      "startup_timeout_sec": 20,
+      "tool_timeout_sec": 45
+    }
+  }
+}

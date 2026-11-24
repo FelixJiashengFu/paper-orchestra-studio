@@ -1,0 +1,40 @@
+{
+  "name": "paper-orchestra-studio",
+  "version": "1.2.0",
+  "description": "End-to-end AI scientific paper workbench: multi-agent paper pipeline, 19 venue LaTeX templates, XeLaTeX/SyncTeX workbench, 8-source literature graph, Research Studio SOPs, figure studio, Nature and Lean 4 audits, reviewer response, venue preflight, claim-evidence audit, talk and poster kits, HTML/Word/PDF export and SSH/GPU management.",
+  "author": {
+    "name": "FelixJiashengFu",
+    "url": "https://github.com/FelixJiashengFu"
+  },
+  "homepage": "https://github.com/FelixJiashengFu/paper-orchestra-studio",
+  "repository": "https://github.com/FelixJiashengFu/paper-orchestra-studio",
+  "license": "Apache-2.0",
+  "keywords": [
+    "academic-writing",
+    "latex",
+    "research",
+    "literature-review",
+    "mcp"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "PaperOrchestra Studio",
+    "shortDescription": "Write, audit and submit research papers with a local multi-agent LaTeX workbench.",
+    "longDescription": "End-to-end AI scientific paper workbench: multi-agent paper pipeline, 19 venue LaTeX templates, XeLaTeX/SyncTeX workbench, 8-source literature graph, Research Studio SOPs, figure studio, Nature and Lean 4 audits, reviewer response, venue preflight, claim-evidence audit, talk and poster kits, HTML/Word/PDF export and SSH/GPU management.",
+    "developerName": "FelixJiashengFu",
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/FelixJiashengFu/paper-orchestra-studio",
+    "defaultPrompt": [
+      "Check my PaperOrchestra environment, providers and templates",
+      "Run a full pre-submission audit on my latest paper run",
+      "Triage these reviews and draft a point-by-point response letter"
+    ],
+    "logo": "./assets/logo.svg"
+  }
+}

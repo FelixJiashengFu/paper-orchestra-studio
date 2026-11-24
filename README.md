@@ -86,13 +86,24 @@
 
 ---
 
+## 五平台智能体插件（Claude Code / Antigravity / Codex / Qoder / WorkBuddy）
+
+同一套功能在五个平台上等价提供：共享的零依赖 Python MCP 服务（24 个工具 + 6 个资源 + 5 个提示词）、Studio 桌面桥接服务（71 个工具）与 12 个工作流技能（含 v1.2.0 新增的审稿回复、选刊与投稿预检、论断证据核查、报告与海报、端到端投稿审计）。安装方式与对照表见 **[plugins/README.md](plugins/README.md)**。
+
+```bash
+python3 plugins/scripts/verify_platforms.py     # 一条命令校验五个平台功能一致（41 项检查，含 Coder 工作区部署脚本）
+python3 plugins/scripts/install.py --platform all   # 生成各平台安装包并打印安装步骤
+```
+
+---
+
 ## 仓库结构
 
 ```text
 paper-orchestra-studio/
 ├── paper-orchestra/            # Python 多智能体论文流水线、模板库、核查/投稿工具与单元测试
 ├── paper-orchestra-desktop/    # Tauri (Rust + React/TypeScript) 桌面端应用与打包脚本
-├── plugins/                    # 按平台分置的原生插件包（antigravity/、claude-desktop/ 与 shared/ 共享 MCP/UI）
+├── plugins/                    # 五平台原生插件包（claude-desktop/、antigravity/、codex/、workbuddy/ 与 shared/ 共享 MCP/UI/技能）及同步、校验脚本
 ├── integrations/               # Qoder 插件（integrations/qoder-plugin/）、实时论文工作台、工具树与 Canvas 控制台
 ├── scripts/                    # 后端一键安装脚本（setup-backend.ps1 / .sh）
 ├── docs/screenshots/           # 桌面工作台实际使用界面与实例截图
@@ -137,6 +148,9 @@ npm run tauri dev          # 开发模式运行
 ```bash
 # Python 单元测试（全部离线运行，无需真实 API Key）
 paper-orchestra/.venv/bin/python -m unittest discover -s paper-orchestra/tests -v
+
+# 五平台插件一致性测试
+python3 -m unittest discover -s plugins/tests -v
 
 # 前端类型检查与 Rust 单元测试
 cd paper-orchestra-desktop

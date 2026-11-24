@@ -1,0 +1,22 @@
+{
+  "name": "paper-orchestra-studio",
+  "interface": {
+    "displayName": "PaperOrchestra Studio"
+  },
+  "plugins": [
+    {
+      "name": "paper-orchestra-studio",
+      "version": "1.2.0",
+      "description": "End-to-end AI scientific paper workbench: multi-agent paper pipeline, 19 venue LaTeX templates, XeLaTeX/SyncTeX workbench, 8-source literature graph, Research Studio SOPs, figure studio, Nature and Lean 4 audits, reviewer response, venue preflight, claim-evidence audit, talk and poster kits, HTML/Word/PDF export and SSH/GPU management.",
+      "source": {
+        "source": "local",
+        "path": "./plugins/codex"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}
