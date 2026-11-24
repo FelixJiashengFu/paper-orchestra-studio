@@ -80,7 +80,7 @@ class CheckProvidersCliTests(unittest.TestCase):
         self.assertEqual(set(report), {"providers", "scholar"})
         for row in report["providers"]:
             self.assertEqual(set(row), PROVIDER_KEYS)
-            self.assertIn(row["kind"], ("openai", "anthropic", "gemini"))
+            self.assertIn(row["kind"], ("openai", "anthropic", "gemini", "cli"))
         for row in report["scholar"]:
             self.assertEqual(set(row), SCHOLAR_KEYS)
         return {r["name"]: r for r in report["providers"]}, report["scholar"]

@@ -1,4 +1,4 @@
-# PaperOrchestra Studio Plugins (Claude Code · Antigravity · Codex · Qoder · WorkBuddy)
+# PaperOrchestra Studio Plugins (Claude Code · Antigravity · Codex · Qoder · WorkBuddy · Muse)
 
 Five agent platforms, one feature set. Every bundle is generated from `plugins/shared/` and ships the same **zero-dependency Python MCP server** (`shared/mcp_server/paper_orchestra_mcp.py`, v1.2.0, **24 model-visible tools + 1 app-only snapshot tool**, **6 resources** including 2 SEP-1865 MCP Apps, **5 prompts**), the same **Studio desktop bridge server** (71 tools, Node), and the same **12 workflow skills**.
 
@@ -12,16 +12,20 @@ Five agent platforms, one feature set. Every bundle is generated from `plugins/s
 | **Qoder** | `integrations/qoder-plugin/` | `.qoder-plugin/plugin.json` | `.mcp.json` (`${QODER_PLUGIN_ROOT}`) | 12 | agent | (install by path or zip) |
 | **WorkBuddy / CodeBuddy** | `plugins/workbuddy/` | `.codebuddy-plugin/plugin.json` | `.mcp.json` (`${CODEBUDDY_PLUGIN_ROOT}`) | 12 | agent | `.codebuddy-plugin/marketplace.json` |
 
+| **Meta Muse** (Muse Code) | `plugins/muse/` | `.muse-plugin/plugin.json` | in the manifest (`capabilities.mcpServers`, argv; Python server via `server/muse_launcher.py`) | 12 + `po-muse-host` | as skill `po-submission-auditor` | (install by path: `muse plugins install`) |
+
+**Muse edition: its own allowance, no other LLM API.** The Muse bundle starts the same server with `PO_HOST_AGENT=muse`. Every backend LLM step then runs as a headless `muse exec` call on the user's own Muse sign-in; provider keys in `.env` are ignored, other providers' model names are served by Muse, and model-based web search and image generation are off. Nothing changes for the other five platforms (the verifier checks that host-agent mode is off there). Details and settings: [`plugins/muse/README.md`](muse/README.md).
+
 **Claude Code sidebar pane (`/po-pane`)** lives in `plugins/claude-code-pane/`. It is a Claude Code mod that draws a live panel from the shared server's tools; other hosts have no pane extension point and use the same tools plus the MCP Apps workbench instead. The verifier checks that every tool the pane calls still exists.
 
 **Coder (coder.com) workspaces** have no plugin format of their own: they run Claude Code or Codex remotely. `plugins/coder/` holds a workspace install script and a template snippet that load the same bundles there; the verifier checks that recipe too.
 
 The guardrails that Antigravity loads from `rules/AGENTS.md` are also sent by the server in its MCP `initialize` instructions, so hosts whose plugin format has no always-on rules receive them too.
 
-### Verify all five
+### Verify all platforms
 
 ```bash
-python3 plugins/scripts/verify_platforms.py          # 44 checks: manifests, files, skills, agents, marketplaces, live MCP handshakes
+python3 plugins/scripts/verify_platforms.py          # 59 checks: manifests, files, skills, agents, marketplaces, live MCP handshakes
 python3 -m unittest discover -s plugins/tests -v     # same checks as unit tests (also run in CI: .github/workflows/plugin-parity.yml)
 ```
 

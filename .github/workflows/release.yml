@@ -104,7 +104,7 @@ jobs:
           chmod +x stage/PaperOrchestra-Backend/setup-backend.sh
           (cd stage && zip -qr "../out/PaperOrchestra-Backend-$TAG.zip" PaperOrchestra-Backend)
           # Agent-platform plugins: one zip per platform (claude-code, antigravity, codex,
-          # qoder, workbuddy), plugin files at the zip root. Named after the plugin version.
+          # qoder, workbuddy, muse), plugin files at the zip root. Named after the plugin version.
           python3 plugins/scripts/verify_platforms.py --strict
           python3 plugins/scripts/install.py --platform all
           cp plugins/dist/paper-orchestra-studio-*.zip out/

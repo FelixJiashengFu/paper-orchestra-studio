@@ -107,6 +107,7 @@
 | **OpenAI Codex** | `plugins/codex/` | `codex plugin marketplace add FelixJiashengFu/paper-orchestra-studio` |
 | **Qoder** | `integrations/qoder-plugin/` | `qoder plugins install <路径>` 或在 Qoder Desktop 里装 zip |
 | **WorkBuddy / CodeBuddy** | `plugins/workbuddy/` | 在插件页从仓库目录添加市场，或装 zip |
+| **Meta Muse**（Muse Code，v1.2.0 之后新增） | `plugins/muse/` | `muse plugins install <路径>`，再 `muse plugins approve paper-orchestra-studio`。**定制版：所有大模型步骤都用你已登录的 Muse 自己完成，不调用其他任何 LLM API，也不需要 API Key**，详见 [plugins/muse/README.md](plugins/muse/README.md) |
 | Coder (coder.com) 工作区 | `plugins/coder/` | 工作区内运行 `install-in-workspace.sh`（Coder 没有自己的插件格式，工作区里跑的仍是 Claude Code / Codex 的同一份插件包） |
 
 各平台的清单格式、MCP 注册方式与完整工具列表见 **[plugins/README.md](plugins/README.md)**。
@@ -122,7 +123,7 @@
 ### 校验与打包
 
 ```bash
-python3 plugins/scripts/verify_platforms.py --strict   # 44 项检查：清单、文件、技能、子智能体、市场文件，并按各宿主的方式真实启动两个 MCP 服务比对握手结果
+python3 plugins/scripts/verify_platforms.py --strict   # 59 项检查（含 Muse）：清单、文件、技能、子智能体、市场文件，并按各宿主的方式真实启动两个 MCP 服务比对握手结果
 python3 -m unittest discover -s plugins/tests -v       # 同样的检查加上新工具的单元测试；CI 在 Ubuntu / macOS / Windows 上各跑一遍
 python3 plugins/scripts/install.py --platform all      # 生成各平台 zip 到 plugins/dist/ 并打印安装步骤
 ```
@@ -137,6 +138,7 @@ python3 plugins/scripts/install.py --platform all      # 生成各平台 zip 到
 | 每个包里的两个 MCP 服务都能启动并完成握手 | `po_reference_sync` 连接真实 Zotero 账号与真实 Overleaf 项目：目前只有针对模拟服务的单元测试 |
 | `po_revision_toolkit`、`po_reference_sync` 的离线单元测试 | `plugins/coder/paper-orchestra.tf` 在真实 Coder 部署上的 `terraform apply`：按模块文档编写，脚本语法已检查 |
 | Ubuntu / macOS / Windows 三系统 CI | |
+| Muse 版：模型路由、`muse exec` 调用参数与输出解析的离线测试（用假的 `muse` 脚本）；在一台 Mac 的 Muse Code 1.4.14 / 1.4.25 上实测了无界面调用的参数与 JSON 事件格式 | Muse 版跑完一整篇论文流水线的效果与耗时；Muse for Mac 图形界面里加载本插件的表现（只验证了 Muse Code 命令行这一侧） |
 
 装好后的冒烟测试：让智能体调用一次 `po_check_environment`。遇到装不上的情况，欢迎带上平台与版本号提 issue。
 

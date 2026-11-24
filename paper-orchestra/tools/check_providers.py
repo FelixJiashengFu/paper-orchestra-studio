@@ -61,6 +61,7 @@ SCHOLAR_QUERY = "deep learning"
 
 # Same labels as the desktop app's providerCatalog.ts.
 LABELS = {
+    "muse": "Meta · Muse Code（用 Muse 自己的额度）",
     "anthropic": "Anthropic · Claude",
     "openai": "OpenAI",
     "gemini": "Google · Gemini / Vertex AI",
@@ -94,6 +95,8 @@ FALLBACK_MODELS = {
     # Presets kept out of auto (no default_model): a connection test still needs a model.
     "antdigital": "ling-3.1-flash",
     "longcat": "LongCat-2.5",
+    # An agent CLI: "default" = the model Muse Code itself is set to use.
+    "muse": "default",
 }
 
 
@@ -261,7 +264,21 @@ def ping_provider(spec, model: str, timeout: float, timing: Optional[Dict[str, i
 
     `timing["ms"]` is set to the request time (not the client set-up) even when it fails.
     """
-    from utils.providers import get_client
+    from utils.providers import CLI_KIND, get_client
+
+    if spec.kind == CLI_KIND:
+        # An agent CLI on the user's own subscription: the test is that the
+        # CLI is installed and runs. No prompt is sent, because each one counts
+        # against the subscription's prompt allowance.
+        from utils.agent_cli_utils import cli_version
+
+        t0 = time.time()
+        try:
+            cli_version(spec.name, timeout=min(timeout, 20.0))
+        finally:
+            if timing is not None:
+                timing["ms"] = int((time.time() - t0) * 1000)
+        return int((time.time() - t0) * 1000)
 
     client = get_client(spec)
     messages = [{"role": "user", "content": "ping"}]
@@ -338,6 +355,8 @@ def _preload_sdks(kinds) -> None:
     """Imports the SDKs once on this thread (parallel first imports serialise on the import lock)."""
     for kind in set(kinds):
         try:
+            if kind == "cli":
+                continue
             if kind == "openai":
                 import openai  # noqa: F401
             elif kind == "anthropic":
@@ -532,7 +551,16 @@ def list_provider_models(spec, timeout: float) -> List[str]:
 
     Raises on any failure (no key, no /models endpoint, network...).
     """
-    from utils.providers import get_client
+    from utils.providers import CLI_KIND, get_client
+
+    if spec.kind == CLI_KIND:
+        # No list endpoint: "default" (Muse Code's own setting) plus any ids
+        # named in providers.json / MUSE_DEFAULT_MODEL.
+        from utils.agent_cli_utils import cli_version
+
+        cli_version(spec.name, timeout=min(timeout, 20.0))
+        ids = ["default"] + [m for m in [spec.resolved_default_model(), *spec.models] if m]
+        return list(dict.fromkeys(ids))
 
     client = get_client(spec)
     if spec.kind == "openai":

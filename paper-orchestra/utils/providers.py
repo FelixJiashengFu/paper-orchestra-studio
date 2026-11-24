@@ -51,6 +51,26 @@ _REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 load_dotenv(os.path.join(_REPO_ROOT, ".env"))
 
 KINDS = ("openai", "anthropic", "gemini")
+# Not a wire protocol: the model is an agent CLI the user is signed in to
+# (Meta's Muse Code), run headless on the user's own quota. No key, no SDK.
+CLI_KIND = "cli"
+_HOST_AGENT_OFF = {"", "0", "off", "none", "no", "false"}
+
+
+def host_agent() -> str:
+    """Name of the host-agent provider every LLM call must use, or "".
+
+    PO_HOST_AGENT=muse (set by the Muse plugin) sends every generation step to
+    the signed-in Muse Code CLI and nothing to any other LLM API, whatever keys
+    .env holds and whatever model a request names. PO_HOST_AGENT_STRICT=0 keeps
+    Muse as the default for "auto" only and lets explicit model names through.
+    """
+    value = os.getenv("PO_HOST_AGENT", "").strip().lower()
+    return "" if value in _HOST_AGENT_OFF else value
+
+
+def host_agent_strict() -> bool:
+    return bool(host_agent()) and os.getenv("PO_HOST_AGENT_STRICT", "").strip().lower() not in ("0", "off", "false", "no")
 
 
 @dataclass
@@ -117,6 +137,10 @@ class ProviderSpec:
         return self.models[0] if self.models else ""
 
     def has_credentials(self) -> bool:
+        if self.kind == CLI_KIND:
+            # Opt-in: selected as the host agent, or its CLI path given explicitly.
+            return host_agent() in ([self.name] + [a.lower() for a in self.aliases]) or bool(
+                os.getenv(f"{_env_prefix(self.name)}_CLI", "").strip())
         if self.kind == "gemini" and self.name == "gemini":
             if os.getenv("VERTEX_AI_PROJECT") and os.getenv("VERTEX_AI_LOCATION"):
                 return True
@@ -249,6 +273,11 @@ def _builtin_providers() -> List[ProviderSpec]:
         _preset("mistral", "https://api.mistral.ai/v1", ["MISTRAL_API_KEY"],
                 default_model="mistral-large-latest", image_max_edge=10_000, image_max_bytes=7_400_000),
         _preset("together", "https://api.together.xyz/v1", ["TOGETHER_API_KEY"]),
+        # Meta Muse Code, run headless (`muse exec`) on the user's own Muse
+        # sign-in and quota: utils/agent_cli_utils.py. Text-only here. No
+        # default_model: Muse Code's own configured model is used unless
+        # MUSE_DEFAULT_MODEL (or a "muse:<model>" ref) names one.
+        ProviderSpec(name="muse", kind=CLI_KIND, vision=False, aliases=["meta", "muse-code", "musecode"]),
         _preset("ollama", "http://localhost:11434/v1", ["OLLAMA_API_KEY"], key_optional=True),
         _preset("lmstudio", "http://localhost:1234/v1", ["LMSTUDIO_API_KEY"], key_optional=True),
         _preset("vllm", "http://localhost:8000/v1", ["VLLM_API_KEY"], key_optional=True),
@@ -469,6 +498,7 @@ _NAME_RULES: List[Tuple[str, str]] = [
     (r"^(ling|lingdt|ring)-", "antdigital"),
     (r"^longcat", "longcat"),
     (r"^grok", "xai"),
+    (r"^muse-", "muse"),
     (r"^(mistral|codestral|magistral|pixtral|ministral)", "mistral"),
 ]
 
@@ -535,8 +565,20 @@ def split_model_ref(model_ref: str) -> Tuple[Optional[str], str]:
 def resolve_model(model_ref: str) -> Tuple[ProviderSpec, str]:
     """Maps a model reference to (provider spec, model name to send on the wire)."""
     prefix, bare = split_model_ref(model_ref)
+    host = get_provider(host_agent()) if host_agent() else None
+    if host is not None and host.kind == CLI_KIND:
+        # Host-agent mode: a ref of the host itself ("muse:muse-spark-1.2",
+        # "muse:default", a bare "muse-..." id) keeps its model; in strict mode
+        # every other ref is served by the host's default model, not its own API.
+        if prefix is None and bare.lower().startswith(host.name + "-"):
+            return host, bare
+        if host_agent_strict() and (prefix is None or get_provider(prefix) is not host):
+            return host, host.resolved_default_model()
     if prefix is not None:
-        return get_provider(prefix), bare  # type: ignore[return-value]
+        spec = get_provider(prefix)
+        if spec is not None and spec.kind == CLI_KIND and bare.lower() in ("default", "auto"):
+            bare = spec.resolved_default_model()  # "" = the CLI's own configured model
+        return spec, bare  # type: ignore[return-value]
 
     lower = bare.lower()
     local_tag = ":" in bare and bool(_LOCAL_TAG.match(bare.rsplit(":", 1)[1]))
@@ -669,6 +711,9 @@ def gemini_api_version(vertex: bool) -> Optional[str]:
 
 
 def get_client(spec: ProviderSpec):
+    if spec.kind == CLI_KIND:
+        raise ValueError(f"Provider '{spec.name}' is an agent CLI and has no SDK client; "
+                         "its calls go through utils.agent_cli_utils.")
     key = spec.resolved_api_key()
     base_url = spec.resolved_base_url()
     cache_key = (spec.name, key, base_url)

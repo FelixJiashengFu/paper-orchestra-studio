@@ -517,3 +517,34 @@ python -c "from utils.citation_audit import audit_run; print(audit_run('paper_ou
 | `CORE_API_KEY` | CORE（必填才启用） |
 | `SMTP_EMAIL`、`SMTP_PASSWORD` | 完成后发邮件通知（原版） |
 | `HTTPS_PROXY` | 需要代理才能访问的平台（Python 网络库会自动读取） |
+| `PO_HOST_AGENT`、`PO_HOST_AGENT_STRICT` | 宿主智能体模式，见第 12 节 |
+| `MUSE_CLI`、`MUSE_DEFAULT_MODEL`、`PO_MUSE_*` | Muse 命令行的位置、模型与调用参数，见第 12 节 |
+
+---
+
+## 12. 宿主智能体模式：只用 Muse 自己的额度
+
+设置 `PO_HOST_AGENT=muse` 后，所有需要大模型的步骤都改为调用本机已登录的 Meta Muse Code 命令行（`muse exec`），不再调用其他任何 LLM API，也不需要任何 Key。Muse 插件（`plugins/muse/`）会自动打开这个模式；也可以把这一行写进 `.env`，让桌面应用和其他平台的插件同样只用 Muse。
+
+行为：
+
+- `auto` 的每个任务都解析为 `muse:default`，即 Muse 自己当前设置的模型；`MUSE_DEFAULT_MODEL` 可以另指定一个，单次也可以写 `muse:<模型名>`。
+- 严格模式（默认）：`PO_TASK_MODEL_*`、`PO_AUTO_MODEL` 以及项目里写明的其他厂商模型名都不再生效，一律由 Muse 完成。`PO_HOST_AGENT_STRICT=0` 可放宽为「Muse 只是默认，显式写出的模型名照旧走各自的 API」。
+- 文献的联网搜索（Gemini / DeepSeek 搜索工具）关闭，改走第 7 节的学术检索源；图像模型关闭，示意图用 Matplotlib 代码绘制；带图片的请求会省略图片并在提示词里注明。
+- 调用时关闭 Muse 的 Shell、写文件与联网工具，在用完即删的空目录里运行，并剔除环境里的 `META_API_KEY`，只用 `muse` 自己保存的登录。
+- `tools/check_providers.py --ping` 对 `muse` 只运行 `muse --version`，不发送提示词。
+
+| 变量 | 作用 |
+|---|---|
+| `PO_HOST_AGENT` | `muse` 打开；`off` 或留空关闭 |
+| `PO_HOST_AGENT_STRICT` | `0` 时显式模型名恢复走各自平台 |
+| `MUSE_CLI` | `muse` 的路径（默认查 PATH 与 `~/.local/bin`） |
+| `MUSE_DEFAULT_MODEL` | 默认模型（不填用 Muse 自己的设置） |
+| `PO_MUSE_REASONING_EFFORT` | `none`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`、`ultra` |
+| `PO_MUSE_CONCURRENCY` | 同时进行的调用数，默认 2 |
+| `PO_MUSE_TIMEOUT` | 单次调用超时秒数，默认 1800 |
+| `PO_MUSE_MAX_STEPS` | 单次调用的模型步数上限，默认 8 |
+| `PO_MUSE_JSON` | `0` 时不用 `--json`（拿不到真实 Token 数，按字符估算） |
+| `PO_MUSE_LEAN` | `0` 时保留 Muse 的工具与个人技能（每次调用更贵） |
+| `PO_MUSE_EXTRA_ARGS` | 追加给 `muse exec` 的参数 |
+| `PO_MUSE_ALLOW_API_KEY` | `1` 时不剔除环境里的 `META_API_KEY` |
