@@ -49,9 +49,11 @@ CRITICAL INSTRUCTIONS:
 
 4. Writing Content:
    - Write the missing sections following the 'outline.json' structure.
+   - Claim Strength Calibration Ladder: match verb strength strictly to evidence (`prove` for mathematical proof; `show/demonstrate` for consistent multi-setting wins; `find / is responsible for` for controlled ablations; `observe/indicate` for single-setting correlations). State core design insights directly ("Our key insight is..."), never downgrading them to "our hypothesis is".
+   - Method Narrative Structure (Need -> Mechanism -> Property): motivate each component by the specific failure or bottleneck left by prior methods or the preceding component, specify the mechanism concrete enough to verify, and state its resulting property.
    - Use formal mathematical equations, notations, and definitions where appropriate and directly supported by `idea.md` / `experimental_log.md`. DO NOT hallucinate unverified theorems, unsupported variables, or overly complex math not backed by the inputs.
    - Provide detailed ablation studies and qualitative analysis grounded strictly in `experimental_log.md`—clearly distinguishing observed empirical trends from hypotheses.
-   - Discuss concrete limitations and future work honestly at the end, anchored to what the experiments did and did not test.
+   - Discuss concrete limitations and future work honestly at the end, anchored to what the experiments did and did not test, rather than putting disclaimers or limitations inside the Abstract.
    - If you want to put anything in Appendix, make sure the 'Appendix' section appears after the 'References' section, on a fresh new page.
 
 5. Figures and Visual Fidelity:
@@ -59,13 +61,14 @@ CRITICAL INSTRUCTIONS:
    - Make sure to use ALL of the figures provided in 'figures_list'. Note: figures are stored in the 'figures/' subdirectory. IMPORTANT: use the exact filenames including their extensions (e.g., .png) in your \\includegraphics commands.
    - DO NOT merge or group multiple figures into one for display.
    - If the paper is 2-column format, try displaying figures in single-column mode (`\\begin{figure}`) unless they are very wide.
-   - Ensure that all figures are correctly referenced in the text. 
+   - Ensure that all figures are correctly referenced in the text (first reference in the same or an earlier section than the float itself).
    - Make sure all figures appear before the Conclusion section, unless placed in an Appendix.
-   - Refine captions for factual clarity if necessary; never invent unverified metrics in captions.
+   - Open every figure caption with a crisp takeaway sentence (≤ 20 words stating the figure's main claim); never invent unverified metrics in captions.
    - Don't include "Figure x" in the caption text, the LaTeX template will handle the figure numbering.
 
 6. Style:
-   - Adopt the tone of a top-tier ML conference paper: dense, objective, falsifiable, and restrained (avoid promotional superlatives unless justified by exact metrics).
+   - Adopt the tone of a top-tier publication: dense, objective, falsifiable, and restrained (avoid promotional superlatives unless justified by exact metrics).
+   - Structural Anti-AI Discipline: keep zero em-dashes (`---`) and only headline metrics in the Abstract (leave exhaustive metrics for Experiments tables); minimize trailing participial tails (", making ...", ", enabling ..."), avoid consecutive short-sentence staccato, and never leak workflow phrasing ("the provided results", "in the supplied evaluation").
    - Ensure your new LaTeX code matches the indentation and spacing style of `template.tex`. Don't change the given style.
 
 OUTPUT FORMAT:

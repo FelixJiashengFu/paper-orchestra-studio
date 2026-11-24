@@ -1254,6 +1254,186 @@ _AUDIT_P_BARE = re.compile(r"(?i)\bp\s*<\s*0?\.(?:05|01|001)\b")
 _AUDIT_P_EXACT = re.compile(r"(?i)\bp\s*=\s*0?\.\d+")
 _AUDIT_AI_FIG = re.compile(r"(?i)\b(?:Midjourney|DALL[\s-]?E|Stable Diffusion|generated (?:by|with|using) (?:generative )?AI|AI-generated (?:figure|image|illustration))\b")
 
+# Syntactic AI-rhythm & structural audit patterns adapted from gulucaptain/Best-Paper-Writing-Skill (CC BY 4.0)
+_AUDIT_PARTICIPLE_TAIL = re.compile(
+    r",\s+(?:thereby\s+)?(?!during|including|according|following|using|regarding|concerning|excluding|notwithstanding)[a-z]{3,}ing\b"
+)
+_AUDIT_ANTITHESIS = re.compile(
+    r"\b(?:is|are|does|do|was|were) not\b|\bnot yet\b|\bnot the same\b|\brather than\b|\binstead of\b|\bneed not\b|\bisn't\b|\baren't\b",
+    re.I,
+)
+_AUDIT_CONNECTOR = re.compile(
+    r"\b(?:however|furthermore|moreover|additionally|therefore|thus|hence|consequently|nevertheless|nonetheless|meanwhile|in addition|in contrast|as a result|on the other hand)\b",
+    re.I,
+)
+_AUDIT_WORKFLOW_TRACES = (
+    ("工作流泄露 (supplied)", re.compile(r"\bsupplied\b", re.I)),
+    ("工作流泄露 (the provided ...)", re.compile(r"\bprovided (?:results|evaluation|numbers|data|facts|input)\b|\bthe provided\b", re.I)),
+    ("工作流泄露 (according to the input/notes)", re.compile(r"\baccording to the (?:input|user|notes)\b", re.I)),
+    ("残留写作步骤标签", re.compile(r"\[(?:intro|abstract|relwork|method|exp)\.[a-z\-.]+\]")),
+)
+_AUDIT_FRONT_DISCLAIMERS = (
+    ("摘要/引言防御性免责 (does not establish/prove)", re.compile(r"\bdoes not (?:establish|imply|guarantee|isolate|prove)\b|\bdo not (?:establish|imply|isolate|prove)\b", re.I)),
+    ("摘要/引言遗留 future-work 退缩表述", re.compile(r"\bremains? to be (?:evaluated|tested|seen|explored)\b|\bleave [^.]* (?:for|to) future work\b", re.I)),
+    ("摘要/引言出现局限性声明 (应放 Limitations)", re.compile(r"\bone limitation\b|\blimitations? of (?:our|this)\b|\bour (?:method|approach|model) (?:still )?(?:fails|is limited)\b", re.I)),
+    ("摘要/引言出现协议防御性限定 (应放 Experiments)", re.compile(r"\bin our comparisons?\b|\bwithin the tested\b|\bunder the tested\b|\bin the evaluated setting\b|\bunder identical hyperparameters\b", re.I)),
+    ("核心洞察降格为猜测", re.compile(r"\bour hypothesis is\b|\bwe take the view\b|\bwe conjecture\b", re.I)),
+)
+_AUDIT_PLOT_RASTER_NAME = re.compile(r"(plot|curve|chart|graph|bar|loss|scaling|ablation|hist)", re.I)
+_AUDIT_ABS_WIDTH = re.compile(r"\b(?:width|height)\s*=\s*\d+(?:\.\d+)?\s*(?:cm|mm|in|pt|bp)\b", re.I)
+_AUDIT_NUMBER_TOKEN = re.compile(r"(?<![A-Za-z\d.])\d+(?:[.,]\d+)*(?![A-Za-z\d])")
+_AUDIT_CJK_CHAR = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff]")
+
+
+def _is_mostly_cjk(text: str) -> bool:
+    stripped = re.sub(r"\s+", "", text or "")
+    if not stripped:
+        return False
+    return (len(_AUDIT_CJK_CHAR.findall(stripped)) / len(stripped)) >= 0.15
+
+
+def _split_sentences(text: str) -> List[str]:
+    cleaned = " ".join((text or "").split())
+    if not cleaned:
+        return []
+    prot = cleaned
+    for pat in (
+        r"\b(?:e\.g\.|i\.e\.|w\.r\.t\.|i\.i\.d\.)",
+        r"\bet al\.",
+        r"\b(?:Fig|Figs|Tab|Eq|Eqs|Sec|cf|vs|etc|resp|approx)\.",
+        r"(?<=\d)\.(?=\d)",
+    ):
+        prot = re.sub(pat, lambda m: m.group().replace(".", "\uE000"), prot, flags=re.I)
+    out: List[str] = []
+    start = 0
+    for m in re.finditer(r"[.!?][”’\"\)\]]*(?=\s|$)", prot):
+        seg = cleaned[start:m.end()].strip()
+        if seg:
+            out.append(seg)
+        start = m.end()
+    tail = cleaned[start:].strip()
+    if tail:
+        out.append(tail)
+    return out
+
+
+def _clean_prose_block(text: str) -> str:
+    clean = _AUDIT_DROP_CMD.sub(" [c] ", text or "")
+    clean = _AUDIT_MATH.sub(" x ", clean)
+    clean = clean.replace("---", "\u2014")
+    clean = re.sub(r"\\(?:begin|end)\{[^}]*\}(?:\[[^\]]*\])?", " ", clean)
+    clean = re.sub(r"\\(?:textbf|textit|emph|underline|texttt)\{([^{}]*)\}", r"\1", clean)
+    clean = re.sub(r"\\[A-Za-z@]+\*?(?:\[[^\]]*\])?", " ", clean)
+    return clean.replace("{", " ").replace("}", " ").replace("~", " ")
+
+
+def _extract_intro_block(body: str) -> str:
+    m = re.search(r"\\section\*?\{\s*Introduction\s*\}", body or "", re.I)
+    if not m:
+        return ""
+    rest = body[m.end():]
+    nxt = re.search(r"\\section\*?\{", rest)
+    return rest[:nxt.start()] if nxt else rest
+
+
+def _count_prose_numbers(text: str) -> int:
+    clean = _AUDIT_DROP_CMD.sub(" ", text or "")
+    clean = re.sub(r"\([^)]*\)", lambda m: re.sub(r"\b(?:19|20)\d{2}\b", " ", m.group()), clean)
+    clean = re.sub(
+        r"\b[A-Za-z][A-Za-z0-9]*(?:[-_][A-Za-z0-9]+)*\b",
+        lambda m: " " if any(ch.isdigit() for ch in m.group()) else m.group(),
+        clean,
+    )
+    clean = re.sub(
+        r"\b\d+([A-Za-z][A-Za-z0-9-]*)\b",
+        lambda m: m.group() if m.group(1) in {"Hz", "kHz", "MHz", "GHz", "fps", "s", "ms", "cm", "mm", "k", "M", "B", "x"} else " ",
+        clean,
+    )
+    return len(_AUDIT_NUMBER_TOKEN.findall(clean))
+
+
+def _compute_syntactic_metrics(paragraphs: List[str]) -> Dict[str, Any]:
+    sents: List[str] = []
+    short_run_max = 0
+    for para in paragraphs:
+        p_sents = _split_sentences(para)
+        sents.extend(p_sents)
+        cur = 0
+        for s in p_sents:
+            cur = cur + 1 if len(_AUDIT_WORD.findall(s)) < 15 else 0
+            short_run_max = max(short_run_max, cur)
+    words = sum(len(_AUDIT_WORD.findall(s)) for s in sents)
+    n_sents = max(len(sents), 1)
+    participle_hits = sum(1 for s in sents if _AUDIT_PARTICIPLE_TAIL.search(s))
+    antithesis_hits = sum(1 for s in sents if _AUDIT_ANTITHESIS.search(s))
+    conn_hits = sum(len(_AUDIT_CONNECTOR.findall(s)) for s in sents)
+    return {
+        "words": words,
+        "sentences": len(sents),
+        "participleTailRatio": round(participle_hits / n_sents, 3) if sents else 0.0,
+        "antithesisRatio": round(antithesis_hits / n_sents, 3) if sents else 0.0,
+        "connectorPer100w": round(conn_hits / max(words, 1) * 100.0, 2) if words else 0.0,
+        "shortRunMax": short_run_max,
+    }
+
+
+def audit_text_draft(text: str, section: str = "abstract") -> Dict[str, Any]:
+    """Run quantitative AI-rhythm & disclaimer checks on an Abstract/Introduction snippet."""
+    raw = text or ""
+    clean = _clean_prose_block(raw)
+    paras = [p.strip() for p in re.split(r"\n\s*\n", clean) if p.strip()]
+    if not paras and clean.strip():
+        paras = [clean.strip()]
+    metrics = _compute_syntactic_metrics(paras)
+    nums = _count_prose_numbers(raw)
+    em_dashes = clean.count("\u2014")
+    semicolons = clean.count(";")
+    metrics["numbers"] = nums
+    metrics["emDashes"] = em_dashes
+    metrics["semicolons"] = semicolons
+
+    issues: List[str] = []
+    for key, rx in AUDIT_RARE_TELLS:
+        if rx.search(clean):
+            issues.append(f"含高频 AI 套话 [{key}]")
+    for label, rx in _AUDIT_WORKFLOW_TRACES:
+        if rx.search(clean):
+            issues.append(f"含{label}")
+    sec_norm = section.strip().lower()
+    if sec_norm in ("abstract", "introduction"):
+        for label, rx in _AUDIT_FRONT_DISCLAIMERS:
+            if rx.search(clean):
+                issues.append(label)
+    if sec_norm == "abstract":
+        if em_dashes:
+            issues.append(f"摘要含 {em_dashes} 个长破折号（顶会与 Nature 均建议摘要 0 个）")
+        if semicolons:
+            issues.append(f"摘要含 {semicolons} 个分号（建议 0 个）")
+    if not _is_mostly_cjk(clean):
+        if metrics["sentences"] >= 6 and metrics["participleTailRatio"] > 0.22:
+            issues.append(
+                f"句尾分词短语占比 {metrics['participleTailRatio']:.0%} 偏高（', making/enabling ...'；获奖论文约 8%，AI 草稿常见 30%+）"
+            )
+        if metrics["sentences"] >= 6 and metrics["antithesisRatio"] > 0.25:
+            issues.append(
+                f"对比/警句排比句占比 {metrics['antithesisRatio']:.0%} 偏高（'X is not Y / rather than' 过度堆砌）"
+            )
+        if metrics["shortRunMax"] >= 4:
+            issues.append(f"连续 {metrics['shortRunMax']} 个短句堆砌（建议合并因果或对比关系）")
+        if metrics["words"] >= 120 and metrics["connectorPer100w"] > 2.5:
+            issues.append(f"显式逻辑连接词每百词 {metrics['connectorPer100w']} 个偏高（顶会获奖论文通常 ≤ 2.0）")
+        if sec_norm == "abstract" and nums > 6:
+            issues.append(f"摘要含 {nums} 个数字（获奖论文摘要中位数 1 个、p90 ≤ 6 个，仅保留核心头条数字）")
+        elif sec_norm == "introduction" and nums > 16:
+            issues.append(f"引言含 {nums} 个数字（获奖论文引言 p90 ≤ 14 个，细节数据请留给正文表格）")
+
+    return {
+        "ok": len(issues) == 0,
+        "section": sec_norm,
+        "metrics": metrics,
+        "issues": issues,
+    }
+
 
 def _strip_tex_macro(text: str, name: str) -> str:
     """Remove every \\name{...} with brace counting (never raises on malformed braces)."""
@@ -1369,7 +1549,12 @@ def _audit_wordcount(body: str, abstract_raw: str, venue: Optional[Dict[str, Any
     return row("prose_wordcount", state, "正文与摘要字数", detail, items)
 
 
-def _audit_ai_tells(body_lines_list: List[Tuple[int, str]], abstract_raw: str) -> Dict[str, Any]:
+def _audit_ai_tells(
+    body_lines_list: List[Tuple[int, str]],
+    abstract_raw: str,
+    body: str = "",
+    is_journal: bool = False,
+) -> Dict[str, Any]:
     cleaned_lines: List[Tuple[int, str]] = []
     for num, code in body_lines_list:
         line = _AUDIT_DROP_CMD.sub(" ", code)
@@ -1386,6 +1571,12 @@ def _audit_ai_tells(body_lines_list: List[Tuple[int, str]], abstract_raw: str) -
                 ctx = line[max(0, m.start() - 30):min(len(line), m.end() + 30)].strip()
                 findings.append(f"第 {num} 行 [{key}]：{ctx}")
 
+    for label, rx in _AUDIT_WORKFLOW_TRACES:
+        for num, line in cleaned_lines:
+            for m in rx.finditer(line):
+                ctx = line[max(0, m.start() - 25):min(len(line), m.end() + 25)].strip()
+                findings.append(f"第 {num} 行 [{label}]：{ctx}")
+
     if words >= 1000:
         for key, rx, base in AUDIT_DENSE_TELLS:
             hits = [(num, m, line) for num, line in cleaned_lines for m in rx.finditer(line)]
@@ -1400,7 +1591,7 @@ def _audit_ai_tells(body_lines_list: List[Tuple[int, str]], abstract_raw: str) -
         abs_dashes = abs_norm.count("\u2014")
         abs_semis = abs_norm.count(";")
         if abs_dashes:
-            findings.append(f"摘要含 {abs_dashes} 个长破折号（Nature 风格建议摘要 0 个）")
+            findings.append(f"摘要含 {abs_dashes} 个长破折号（Nature 与顶会风格均建议摘要 0 个）")
         if abs_semis:
             findings.append(f"摘要含 {abs_semis} 个分号（Nature 风格建议摘要 0 个）")
 
@@ -1430,26 +1621,96 @@ def _audit_ai_tells(body_lines_list: List[Tuple[int, str]], abstract_raw: str) -
             if len(_AUDIT_WORD.findall(m.group(1))) >= 6:
                 findings.append(f"第 {num} 行 [正文长粗体句]：{m.group(1).strip()[:80]}")
 
+    intro_raw = _extract_intro_block(body) if body else ""
+    abs_nums = _count_prose_numbers(abstract_raw) if abstract_raw else 0
+    intro_nums = _count_prose_numbers(intro_raw) if intro_raw else 0
+    sample_paras = [_clean_prose_block(p) for _, p in paras]
+    metrics = _compute_syntactic_metrics(sample_paras)
+    metrics["abstractNumbers"] = abs_nums
+    metrics["introNumbers"] = intro_nums
+
+    if not _is_mostly_cjk(body or abstract_raw):
+        for sec_label, sec_raw in (("摘要", abstract_raw), ("引言", intro_raw)):
+            if not sec_raw:
+                continue
+            sec_clean = _clean_prose_block(sec_raw)
+            for label, rx in _AUDIT_FRONT_DISCLAIMERS:
+                m = rx.search(sec_clean)
+                if m:
+                    ctx = sec_clean[max(0, m.start() - 20):min(len(sec_clean), m.end() + 30)].strip()
+                    findings.append(f"{sec_label} [{label}]：{ctx}")
+
+        front_paras = [
+            _clean_prose_block(blk)
+            for blk in (abstract_raw, intro_raw)
+            if blk and blk.strip()
+        ]
+        front_metrics = _compute_syntactic_metrics(front_paras) if front_paras else metrics
+        target_metrics = front_metrics if front_metrics["sentences"] >= 8 else metrics
+
+        if target_metrics["sentences"] >= 8 and target_metrics["participleTailRatio"] > 0.22:
+            findings.append(
+                f"句尾分词短语（', making/enabling ...'）占比 {target_metrics['participleTailRatio']:.0%} 偏高"
+                "（顶会获奖论文约 8%，AI 草稿常见 30%+）"
+            )
+        if target_metrics["sentences"] >= 8 and target_metrics["antithesisRatio"] > 0.25:
+            findings.append(
+                f"对比/警句排比句（'X is not Y / rather than'）占比 {target_metrics['antithesisRatio']:.0%} 偏高"
+            )
+        if target_metrics["shortRunMax"] >= 4:
+            findings.append(f"存在连续 {target_metrics['shortRunMax']} 个短句（<15 词）堆砌，建议合并因果/对比逻辑")
+        if target_metrics["words"] >= 150 and target_metrics["connectorPer100w"] > 2.5:
+            findings.append(f"显式连接词密度 {target_metrics['connectorPer100w']} / 百词偏高（建议控制在 ≤ 2.0）")
+        if abstract_raw and abs_nums > 6:
+            findings.append(f"摘要含 {abs_nums} 个数字（获奖论文摘要中位数 1 个、p90 ≤ 6 个，仅保留核心头条数字）")
+        if intro_raw and intro_nums > 16:
+            findings.append(f"引言含 {intro_nums} 个数字（获奖论文引言 p90 ≤ 14 个，详细指标请移入正文表格）")
+
     state = "warn" if findings else "ok"
     detail = f"发现 {len(findings)} 处可优化表述/标点节奏" if findings else f"已检查约 {words} 词，未检出明显 AI 腔与标点滥用"
-    return row("ai_tells", state, "AI 写作痕迹与标点节奏", detail, findings[:20])
+    res = row("ai_tells", state, "AI 写作痕迹与标点节奏", detail, findings[:20])
+    res["metrics"] = metrics
+    return res
 
 
-def _audit_figure_refs(body: str, is_journal: bool) -> Dict[str, Any]:
+def _audit_figure_refs(body: str, is_journal: bool, code: str = "") -> Dict[str, Any]:
+    one_col = is_journal or bool(re.search(r"\\usepackage(?:\[[^\]]*\])?\{neurips", code or ""))
     all_labels = set(re.findall(r"\\label\{([^}]+)\}", body))
     all_refs = set(
         target.strip()
         for grp in re.findall(r"\\(?:autoref|cref|Cref|ref)\*?\{([^}]+)\}", body)
         for target in grp.split(",")
     )
-    fig_blocks = re.findall(r"\\begin\{figure\*?}([\s\S]*?)\\end\{figure\*?}", body)
-    defined_fig_labels: List[Tuple[int, str]] = []
+
+    sec_starts = [m.start() for m in re.finditer(r"\\section\*?\{", body)]
+
+    def _sec_idx(pos: int) -> int:
+        return sum(1 for sp in sec_starts if sp <= pos)
+
+    float_spans = [m.span() for m in re.finditer(r"\\begin\{(?:figure|table)\*?\}[\s\S]*?\\end\{(?:figure|table)\*?\}", body)]
+
+    def _in_float(pos: int) -> bool:
+        return any(s <= pos <= e for s, e in float_spans)
+
+    first_ref_pos: Dict[str, int] = {}
+    for rm in re.finditer(r"\\(?:autoref|cref|Cref|ref)\*?\{([^}]+)\}", body):
+        if _in_float(rm.start()):
+            continue
+        for target in rm.group(1).split(","):
+            t = target.strip()
+            if t and t not in first_ref_pos:
+                first_ref_pos[t] = rm.start()
+
+    fig_matches = list(re.finditer(r"\\begin\{figure\*?\}([\s\S]*?)\\end\{figure\*?\}", body))
+    defined_fig_labels: List[Tuple[int, int, str]] = []
     caption_issues: List[str] = []
 
-    for idx, block in enumerate(fig_blocks, 1):
+    for idx, fm in enumerate(fig_matches, 1):
+        block = fm.group(1)
+        fig_sec = _sec_idx(fm.start())
         lbls = re.findall(r"\\label\{([^}]+)\}", block)
         for lbl in lbls:
-            defined_fig_labels.append((idx, lbl))
+            defined_fig_labels.append((idx, fig_sec, lbl))
         cm = re.search(r"\\caption\b", block)
         if cm:
             cap_text, _ = braced_arg(block, cm.end())
@@ -1458,6 +1719,34 @@ def _audit_figure_refs(body: str, is_journal: bool) -> Dict[str, Any]:
                 caption_issues.append(f"Fig. {idx} 图注约 {cap_words} 词（Nature 风格建议 ≤ 350 词）")
             if is_journal and cap_text.strip() and not re.match(r"^\s*\\textbf\{", cap_text):
                 caption_issues.append(f"Fig. {idx} 图注未以加粗一句话总标题（\\textbf{{...}}）开头")
+            if not _is_mostly_cjk(cap_text):
+                cap_clean = _clean_prose_block(cap_text)
+                cap_sents = _split_sentences(cap_clean)
+                if cap_sents:
+                    first_words = len(_AUDIT_WORD.findall(cap_sents[0]))
+                    if first_words > 25:
+                        caption_issues.append(
+                            f"Fig. {idx} 图注首句共 {first_words} 词（获奖论文建议首句 ≤ 20 词直接点明一句话结论）"
+                        )
+                if not is_journal:
+                    max_cap = (155 if one_col else 110) if idx == 1 else (105 if one_col else 95)
+                    if cap_words > max_cap:
+                        caption_issues.append(
+                            f"Fig. {idx} 图注约 {cap_words} 词，超过顶会获奖论文 p90 上限（{max_cap} 词）"
+                        )
+
+        for gm in re.finditer(r"\\includegraphics\s*(?:\[([^\]]*)\])?\s*\{([^}]+)\}", block):
+            opts = gm.group(1) or ""
+            gpath = gm.group(2).strip()
+            if opts and _AUDIT_ABS_WIDTH.search(opts):
+                caption_issues.append(
+                    f"Fig. {idx} 使用了绝对尺寸参数（{gm.group(0)[:48]}），建议改用相对宽度 \\linewidth / \\textwidth"
+                )
+            low_p = gpath.lower()
+            if low_p.endswith((".png", ".jpg", ".jpeg")) and _AUDIT_PLOT_RASTER_NAME.search(low_p):
+                caption_issues.append(
+                    f"Fig. {idx} 的数据/曲线图 {os.path.basename(gpath)} 为栅格格式，顶会排版建议优先使用矢量 PDF/EPS"
+                )
 
     plain_body = _strip_float_envs(body)
     cited_main_nums: Set[int] = set()
@@ -1474,20 +1763,32 @@ def _audit_figure_refs(body: str, is_journal: bool) -> Dict[str, Any]:
                 cited_panels.setdefault(n, set()).add(m.group("panels").lower().replace(" ", ""))
 
     issues: List[str] = []
-    for idx, lbl in defined_fig_labels:
+    for idx, fig_sec, lbl in defined_fig_labels:
         if lbl not in all_refs and idx not in cited_main_nums:
             issues.append(f"已定义图标签 \\label{{{lbl}}}（Fig. {idx}）在正文中未被引用")
+        elif lbl in first_ref_pos and fig_sec > 0 and _sec_idx(first_ref_pos[lbl]) > fig_sec:
+            issues.append(f"Fig. {idx}（\\label{{{lbl}}}）首次被正文引用位于更靠后的章节，建议提前在同章或更早章节首次引用")
     for ref_lbl in sorted(all_refs):
         if ref_lbl.lower().startswith("fig:") and ref_lbl not in all_labels:
             issues.append(f"正文引用 \\ref{{{ref_lbl}}} 找不到对应的 \\label")
-    if fig_blocks:
+    if fig_matches:
         for n in sorted(cited_main_nums):
-            if n > len(fig_blocks):
-                issues.append(f"正文提到 Fig. {n}，但文档只定义了 {len(fig_blocks)} 个 figure 环境")
+            if n > len(fig_matches):
+                issues.append(f"正文提到 Fig. {n}，但文档只定义了 {len(fig_matches)} 个 figure 环境")
+    if not is_journal:
+        main_part = re.split(r"\\(?:appendix|bibliography\b|begin\{thebibliography\})", body, maxsplit=1)[0]
+        main_figs = len(re.findall(r"\\begin\{figure\*?\}", main_part))
+        main_tabs = len(re.findall(r"\\begin\{table\*?\}", main_part))
+        max_figs = 6 if one_col else 9
+        max_tabs = 2 if one_col else 5
+        if main_figs > max_figs:
+            issues.append(f"顶会正文含 {main_figs} 张图，超过获奖论文 p90 上限（{max_figs} 张，次要图可移入 Appendix）")
+        if main_tabs > max_tabs:
+            issues.append(f"顶会正文含 {main_tabs} 张表，超过获奖论文 p90 上限（{max_tabs} 张，细节消融可移入 Appendix）")
     issues.extend(caption_issues)
 
     state = "warn" if issues else "ok"
-    detail = f"共 {len(fig_blocks)} 个图环境，正文引用编号 {sorted(cited_main_nums) or '无'}"
+    detail = f"共 {len(fig_matches)} 个图环境，正文引用编号 {sorted(cited_main_nums) or '无'}"
     if issues:
         detail += f"；发现 {len(issues)} 项需核对"
     return row("figure_refs", state, "图表与图注一致性", detail, issues[:20])
@@ -1574,8 +1875,8 @@ def cmd_manuscript_audit(a: argparse.Namespace) -> Dict[str, Any]:
     )
     checks = [
         _audit_wordcount(body, abstract_raw, venue, is_journal),
-        _audit_ai_tells(b_lines, abstract_raw),
-        _audit_figure_refs(body, is_journal),
+        _audit_ai_tells(b_lines, abstract_raw, body=body, is_journal=is_journal),
+        _audit_figure_refs(body, is_journal, code=code),
         _audit_draft_markers(b_lines),
         _audit_stats_reporting(body),
         _audit_back_matter(body, code, is_journal, venue),
@@ -1718,6 +2019,12 @@ def cmd_lean_audit(a: argparse.Namespace) -> Dict[str, Any]:
     }
 
 
+def cmd_author_report(a: argparse.Namespace) -> Dict[str, Any]:
+    from utils.author_report import generate_author_report
+
+    return generate_author_report(a.run_dir)
+
+
 # --------------------------------------------------------------------------- main
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -1752,6 +2059,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     p = sub.add_parser("manuscript-audit")
     p.add_argument("run_dir")
     p.set_defaults(fn=cmd_manuscript_audit)
+    p = sub.add_parser("author-report")
+    p.add_argument("run_dir")
+    p.set_defaults(fn=cmd_author_report)
     p = sub.add_parser("lean-audit")
     p.add_argument("project_dir")
     p.set_defaults(fn=cmd_lean_audit)

@@ -45,12 +45,24 @@ def _base_dir(sig: inspect.Signature, args, kwargs):
 
 
 def _remove_stale_audit(base_dir: str) -> None:
+    from utils.author_report import REPORT_JSON_NAME, REPORT_MD_NAME
     from utils.citation_audit import CITED_BIB_NAME, JSON_NAME, MD_NAME
 
-    for name in (JSON_NAME, MD_NAME, CITED_BIB_NAME):
+    for name in (JSON_NAME, MD_NAME, CITED_BIB_NAME, REPORT_MD_NAME, REPORT_JSON_NAME):
         path = os.path.join(base_dir, name)
         if os.path.isfile(path):
             os.remove(path)
+
+
+def run_author_report(base_dir: str) -> None:
+    """Best-effort author delivery report (`report.md`). Never raises."""
+    try:
+        from utils.author_report import generate_author_report
+
+        rep = generate_author_report(base_dir)
+        print(f" >> Author report: {rep.get('summary', 'ok')} (report.md)")
+    except Exception as e:
+        _warn("author report", e)
 
 
 def run_citation_audit(base_dir: str) -> None:
@@ -90,6 +102,7 @@ def with_run_reports(func):
         finally:
             if result is True and base_dir:
                 run_citation_audit(base_dir)
+                run_author_report(base_dir)
             try:
                 if usage_tracker.end_run(base_dir):
                     t = usage_tracker.report(base_dir)["totals"]

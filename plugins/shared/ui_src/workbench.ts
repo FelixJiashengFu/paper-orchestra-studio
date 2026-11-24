@@ -160,6 +160,7 @@ interface State {
   latexPdfHeightPt: number;
   latexSyncHighlight: { page: number; h: number; v: number; top: number; W: number; H: number; lineLabel: string } | null;
   latexSyncBusy: boolean;
+  latexPolishResult: Record<string, any> | null;
   // Audit / Export
   auditResult: string;
   exportResult: string;
@@ -232,6 +233,7 @@ const state: State = {
   latexPdfHeightPt: 792,
   latexSyncHighlight: null,
   latexSyncBusy: false,
+  latexPolishResult: null,
   auditResult: "",
   exportResult: "",
   selectedSkill: null,
@@ -972,6 +974,8 @@ function renderLatex(): string {
             <button class="btn primary" id="ltx-open-btn" type="button">打开源码工程 (open)</button>
             <button class="btn" id="ltx-compile-btn" type="button">编译预览 (auto XeLaTeX)</button>
             <button class="btn" id="ltx-trace-btn" type="button">引文溯源</button>
+            <button class="btn" id="ltx-polish-diag-btn" type="button">摘要诊断 (离线)</button>
+            <button class="btn" id="ltx-polish-rewrite-btn" type="button">摘要逐句改写 (AI)</button>
             <button class="btn" id="ltx-overleaf-btn" type="button">导出 Overleaf ZIP</button>
           </div>
         </div>
@@ -998,6 +1002,102 @@ function renderLatex(): string {
             ${editorCardHtml}
             ${pdfCardHtml}
           </div>`
+        : ""
+    }
+
+    ${
+      state.latexPolishResult
+        ? (() => {
+            const pol = state.latexPolishResult;
+            const bm = pol.beforeAudit?.metrics || {};
+            const am = pol.afterAudit?.metrics || null;
+            const fmtMetrics = (m: any, prefix: string) =>
+              `<div class="btn-row" style="margin-bottom:8px">
+                <span class="pill blue">${esc(prefix)}</span>
+                <span class="pill">词数: ${esc(m.words ?? 0)}</span>
+                <span class="pill">句尾分词占比: ${((Number(m.participleTailRatio || 0)) * 100).toFixed(1)}%</span>
+                <span class="pill">排比对比占比: ${((Number(m.antithesisRatio || 0)) * 100).toFixed(1)}%</span>
+                <span class="pill">连接词/百词: ${esc(m.connectorPer100w ?? 0)}</span>
+                <span class="pill">数字个数: ${esc(m.numbers ?? 0)}</span>
+              </div>`;
+            const diagRows: any[] = pol.fieldDiagnosis || [];
+            const changes: any[] = pol.changeTable || [];
+            const lims: string[] = pol.limitationsNotes || [];
+            const qs: string[] = pol.missingQuestions || [];
+            const issues: string[] = pol.beforeAudit?.issues || [];
+            return `<div class="card">
+              <div class="card-head">
+                <div>
+                  <h3>摘要诊断与获奖论文风格改写 (${esc(pol.mode === "rewrite" ? "AI 逐句改写对照" : "离线结构诊断")})</h3>
+                  <p class="mono">${esc(pol.summary || "")}</p>
+                </div>
+                <button class="btn small" id="ltx-polish-close" type="button">关闭</button>
+              </div>
+              <div class="card-body">
+                ${fmtMetrics(bm, "改写前 / 当前")}
+                ${am ? fmtMetrics(am, "改写后") : ""}
+                ${
+                  issues.length
+                    ? `<div style="margin-bottom:10px">${issues
+                        .map((iss: string) => `<div class="callout warning" style="margin-bottom:6px"><div>${esc(iss)}</div></div>`)
+                        .join("")}</div>`
+                    : `<div class="callout" style="margin-bottom:10px"><div>当前摘要未检出结构性 AI 腔或标点越界。</div></div>`
+                }
+                ${
+                  diagRows.length
+                    ? `<table class="po-table" style="width:100%;margin-bottom:12px">
+                        <thead><tr><th>字段</th><th>状态</th><th>识别摘要</th><th>补充建议</th></tr></thead>
+                        <tbody>
+                          ${diagRows
+                            .map(
+                              (r) => `<tr>
+                                <td><strong>${esc(r.label)}</strong></td>
+                                <td><span class="pill ${r.status === "present" ? "green" : r.status === "vague" ? "blue" : "red"}">${esc(r.status)}</span></td>
+                                <td class="mono">${esc(r.evidence || "-")}</td>
+                                <td>${esc(r.suggestion || "完整")}</td>
+                              </tr>`,
+                            )
+                            .join("")}
+                        </tbody>
+                      </table>`
+                    : ""
+                }
+                ${
+                  pol.revisedAbstract
+                    ? `<div class="callout" style="margin-bottom:10px"><div><strong>改写后摘要建议：</strong><br>${esc(pol.revisedAbstract)}</div></div>`
+                    : ""
+                }
+                ${
+                  changes.length
+                    ? `<table class="po-table" style="width:100%;margin-bottom:12px">
+                        <thead><tr><th>原句</th><th>改后句</th><th>修改理由 / 获奖论文模式</th></tr></thead>
+                        <tbody>
+                          ${changes
+                            .map(
+                              (c) => `<tr>
+                                <td>${esc(c.original || "")}</td>
+                                <td>${esc(c.revised || "")}</td>
+                                <td>${esc(c.reason || "")}${c.pattern ? ` <span class="pill">${esc(c.pattern)}</span>` : ""}</td>
+                              </tr>`,
+                            )
+                            .join("")}
+                        </tbody>
+                      </table>`
+                    : ""
+                }
+                ${
+                  qs.length
+                    ? `<div class="callout warning" style="margin-bottom:8px"><div><strong>建议作者补充的关键事实：</strong><ul style="margin:6px 0 0 18px">${qs.map((q) => `<li>${esc(q)}</li>`).join("")}</ul></div></div>`
+                    : ""
+                }
+                ${
+                  lims.length
+                    ? `<div class="callout"><div><strong>留给 Limitations 章节的要点：</strong><ul style="margin:6px 0 0 18px">${lims.map((l) => `<li>${esc(l)}</li>`).join("")}</ul></div></div>`
+                    : ""
+                }
+              </div>
+            </div>`;
+          })()
         : ""
     }
 
@@ -1038,8 +1138,8 @@ function renderExports(): string {
     <div class="page-head">
       <div>
         <div class="eyebrow">SUBMISSION AUDIT & ARTIFACT EXPORT</div>
-        <h1>投稿体检（8 工具）与多格式成果导出</h1>
-        <p>一键对运行目录执行 Nature 规范审计、联网核对 DOI、双盲泄密检查、arXiv 打包，或把 Markdown 导成交互式 HTML / Word / PDF。</p>
+        <h1>投稿体检（8+ 工具）与多格式成果导出</h1>
+        <p>一键对运行目录执行 Nature + 顶会文风/配图体检、生成作者交付报告 report.md、联网核对 DOI、双盲泄密检查、arXiv 打包，或导出多格式报告。</p>
       </div>
     </div>
 
@@ -1049,7 +1149,8 @@ function renderExports(): string {
         <div class="field"><label>目标 run_dir</label><input id="aud-run-dir" type="text" value="${esc(state.selectedRunDir)}"></div>
         <div class="btn-row">
           ${[
-            ["manuscript-audit", "Nature 手稿体检"],
+            ["manuscript-audit", "全面手稿体检 (Nature + 顶会文风/配图)"],
+            ["author-report", "生成作者交付报告 (report.md)"],
             ["cite-online", "联网核验引用"],
             ["blind", "双盲匿名检查"],
             ["diagnose", "TeX 日志诊断"],
@@ -2138,6 +2239,39 @@ function bindEvents(): void {
     } catch (e) {
       showToast(String(e), true);
     }
+  });
+  const runPolishAbstract = async (mode: "diagnose" | "rewrite") => {
+    const filePath =
+      state.latexOpen?.sourceDir && state.latexFile && state.latexFile.endsWith(".tex")
+        ? `${state.latexOpen.sourceDir}/${state.latexFile}`
+        : undefined;
+    if (!state.selectedRunDir && !filePath && !state.latexContent.trim()) {
+      return showToast("请先填写 run_dir 或打开 .tex 文件", true);
+    }
+    try {
+      showToast(mode === "rewrite" ? "正在按获奖论文文风生成摘要逐句改写对照表…" : "正在运行离线摘要结构诊断与 AI 节奏指标计算…");
+      const res = await bridge.callTool("po_latex_copilot", {
+        action: "polish_abstract",
+        mode,
+        run_dir: state.selectedRunDir || undefined,
+        file_path: filePath,
+      });
+      if (res?.error) {
+        showToast(String(res.error), true);
+        return;
+      }
+      state.latexPolishResult = res;
+      render();
+      showToast(String(res.summary || "摘要分析完成"));
+    } catch (e) {
+      showToast(String(e), true);
+    }
+  };
+  document.getElementById("ltx-polish-diag-btn")?.addEventListener("click", () => void runPolishAbstract("diagnose"));
+  document.getElementById("ltx-polish-rewrite-btn")?.addEventListener("click", () => void runPolishAbstract("rewrite"));
+  document.getElementById("ltx-polish-close")?.addEventListener("click", () => {
+    state.latexPolishResult = null;
+    render();
   });
   document.getElementById("ltx-overleaf-btn")?.addEventListener("click", async () => {
     if (!state.selectedRunDir) return;

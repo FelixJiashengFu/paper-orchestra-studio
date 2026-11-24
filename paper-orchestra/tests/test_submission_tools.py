@@ -185,6 +185,110 @@ The author declares no competing interests.
         for check in report["checks"]:
             self.assertEqual(check["state"], "ok", f"{check['id']}: {check}")
 
+    def test_structural_ai_rhythm_and_conference_figure_audit(self):
+        tex = r"""\documentclass{article}
+\begin{document}
+\begin{abstract}
+We tackle motion estimation across scenes, reaching 91.2, 88.4, 79.1, 64.0, 52.3, 41.2, and 33.8 on seven benchmarks, making inference fast.
+These results remain to be evaluated on larger suites.
+\end{abstract}
+\section{Introduction}
+First sentence is short. Second is short. Third is short. Fourth is short.
+We achieve strong scores across benchmarks, making training efficient.
+We propose a method, enabling fast convergence.
+It improves accuracy, reducing latency cleanly.
+This design scales well, preserving fine details.
+Our method outperforms baselines, achieving superior results.
+X is not Y in practice. Rather than approximating gradients, we optimize directly.
+Our results are not limited to one domain, making transfer simple.
+However, prior pipelines fail on the provided results under memory limits.
+\section{Method}
+We present the core architecture cleanly.
+\begin{figure}[htbp]
+\includegraphics[width=12cm]{figures/ablation_curve.png}
+\caption{This unnecessarily long opening caption sentence intentionally contains well over twenty-five plain English words across multiple clauses so that the award-paper takeaway checker definitely flags the verbose opening claim directly.}
+\label{fig:overview}
+\end{figure}
+\section{Experiments}
+See Fig.~\ref{fig:overview} and Fig.~\ref{fig:late} here.
+\begin{figure}[htbp]
+\includegraphics[width=\linewidth]{figures/qualitative.png}
+\caption{Short summary.}
+\label{fig:late}
+\end{figure}
+\end{document}
+"""
+        tmp = self._write_run(tex, venue=None)
+        report = st.cmd_manuscript_audit(argparse.Namespace(run_dir=tmp.name))
+        by_id = {c["id"]: c for c in report["checks"]}
+        self.assertEqual(by_id["ai_tells"]["state"], "warn")
+        ai_items = "\n".join(by_id["ai_tells"]["items"])
+        self.assertIn("句尾分词短语", ai_items)
+        self.assertIn("工作流泄露", ai_items)
+        self.assertIn("短句", ai_items)
+        self.assertIn("摘要含", ai_items)
+        self.assertIn("future-work", ai_items)
+        self.assertIn("metrics", by_id["ai_tells"])
+
+        self.assertEqual(by_id["figure_refs"]["state"], "warn")
+        fig_items = "\n".join(by_id["figure_refs"]["items"])
+        self.assertIn("图注首句共", fig_items)
+        self.assertIn("绝对尺寸参数", fig_items)
+        self.assertIn("ablation_curve.png", fig_items)
+        self.assertIn("更靠后的章节", fig_items)
+
+        # Chinese CJK prose should skip English-specific participle/caption-word checks
+        cjk_tex = r"""\documentclass{article}
+\begin{document}
+\begin{abstract}
+本文提出一种面向分子动力学非梯度力场的能量守恒修正方法，在多尺度基准上将误差降低 38\%。
+\end{abstract}
+\section{引言}
+我们在热力学采样与动力学稳定性两方面给出理论分析与数值验证。详见图 \ref{fig:cn}。
+\begin{figure}[htbp]
+\includegraphics[width=\linewidth]{figures/main_diagram.pdf}
+\caption{本文提出框架在多尺度非梯度力场上的整体流程图与对比效果示意说明。}
+\label{fig:cn}
+\end{figure}
+\end{document}
+"""
+        cjk_tmp = self._write_run(cjk_tex, venue=None)
+        cjk_rep = st.cmd_manuscript_audit(argparse.Namespace(run_dir=cjk_tmp.name))
+        cjk_ai = "\n".join(next(c["items"] for c in cjk_rep["checks"] if c["id"] == "ai_tells"))
+        self.assertNotIn("句尾分词短语", cjk_ai)
+
+    def test_polish_abstract_offline_diagnose_and_author_report(self):
+        import latex_copilot as lc
+
+        tex = r"""\documentclass{article}
+\begin{document}
+\begin{abstract}
+Existing neural solvers suffer from drift because explicit integrators accumulate truncation errors. We propose SymplecticNet, improving accuracy by 42% on molecular benchmarks.
+\end{abstract}
+\section*{Introduction}
+Symplectic integrators preserve phase space volume \cite{verlet1967}.
+\section*{Limitations}
+Our current formulation remains to be evaluated on reactive systems with bond breaking.
+\end{document}
+"""
+        tmp = self._write_run(tex, venue=None)
+        diag = lc.cmd_polish_abstract(
+            argparse.Namespace(text="", intro_text="", file="", run_dir=tmp.name, mode="diagnose", model="auto")
+        )
+        self.assertTrue(diag["ok"])
+        self.assertEqual(diag["mode"], "diagnose")
+        self.assertEqual(len(diag["fieldDiagnosis"]), 7)
+        self.assertIn("metrics", diag["beforeAudit"])
+
+        rep = st.cmd_author_report(argparse.Namespace(run_dir=tmp.name))
+        self.assertTrue(rep["ok"])
+        self.assertTrue(os.path.isfile(os.path.join(tmp.name, "report.md")))
+        self.assertTrue(os.path.isfile(os.path.join(tmp.name, "author_report.json")))
+        with open(os.path.join(tmp.name, "report.md"), encoding="utf-8") as fh:
+            md = fh.read()
+        self.assertIn("核心主张 — 证据对照表", md)
+        self.assertIn("留给 Limitations", md)
+
 
 if __name__ == "__main__":
     unittest.main()

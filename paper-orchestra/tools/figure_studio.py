@@ -919,7 +919,8 @@ def cmd_create(args: argparse.Namespace) -> Dict[str, Any]:
                 )
             prompt += (
                 "Use ONLY standard library + numpy + pandas + matplotlib (do NOT import seaborn, scipy, sklearn, or openpyxl). "
-                "Use crisp 300 DPI white background, colorblind-safe Okabe-Ito or viridis colors, legible font sizes, clear axis labels with units, and tight layout. "
+                "Follow award-paper print styling: clean white background at 300 DPI, remove top/right spines (`spines['top'].set_visible(False)`, `spines['right'].set_visible(False)`), "
+                "thin `0.6pt` axis lines, subtle light grid (`alpha=0.25`, `linewidth=0.5`), `legend(frameon=False)`, `rcParams['pdf.fonttype'] = 42`, colorblind-safe Okabe-Ito or viridis colors, legible typography, clear axis labels with units, one focused visual claim, and tight layout. "
                 "Return ONLY ```python ... ``` code."
             )
             _emit_progress(

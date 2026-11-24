@@ -38,6 +38,11 @@ CITATION REQUIREMENTS:
 - CRITICAL EVALUATION RULE: Do not claim our method beats or achieves State-of-the-Art over a specific cited paper UNLESS that paper is explicitly evaluated against in 'project_experimental_log'. Frame other recent papers strictly as concurrent, orthogonal, or conceptual work.
 - FACTUAL DESCRIPTION RULE: Describe each cited paper strictly using its title and abstract provided in 'collected_papers'. NEVER attribute datasets, quantitative metrics, or experimental conclusions to a cited paper from memory if they do not appear in the provided metadata.
 - CLAIM PRECISION: Keep performance claims strictly bounded to the exact datasets, metrics, and baselines recorded in 'project_experimental_log'.
+- BEST-PAPER INTRODUCTION & PROSE DISCIPLINE:
+  * Follow `narrative_routing` (`paper_type`, `motivation_type`, `tension_type`) and `claim_evidence_map` if present in `intro_related_work_plan`.
+  * Credit specific prior work and state a concrete, mechanism-level gap (under what condition existing methods fail and why); never open with generic filler ("has attracted increasing attention", "plays an important role").
+  * Explain proposed components through causal dependency (component B solves the residual failure left by component A) rather than a flat parallel list.
+  * Keep prose clean and restrained: minimize trailing participial tails (", making ...", ", enabling ..." in < 10% of sentences), avoid workflow leakage ("the provided results/notes"), reserve limitations/future work for Discussion/Limitations rather than Introduction, and anchor Introduction on headline metrics while leaving exhaustive numbers for Experiments tables.
 - You need to return the full code for the new 'template.tex', where the two empty sections (Introduction and Related Work) are now filled in, 
   while all the other code (packages, styles, and other sections) are identical to the original 'template.tex'.
 

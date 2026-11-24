@@ -48,9 +48,11 @@ class DecoratorTests(unittest.TestCase):
         audit = read_json(os.path.join(self.run, "citation_audit.json"))
         self.assertEqual(audit["summary"]["cited"], 1)
         self.assertTrue(os.path.isfile(os.path.join(self.run, "citation_audit.md")))
+        self.assertTrue(os.path.isfile(os.path.join(self.run, "report.md")))
+        self.assertTrue(os.path.isfile(os.path.join(self.run, "author_report.json")))
 
     def test_failure_still_writes_usage_and_skips_audit(self):
-        for name in ("citation_audit.json", "citation_audit.md"):  # stale files from an earlier run
+        for name in ("citation_audit.json", "citation_audit.md", "report.md", "author_report.json"):  # stale files from an earlier run
             with open(os.path.join(self.run, name), "w") as f:
                 f.write("old")
 
@@ -63,6 +65,8 @@ class DecoratorTests(unittest.TestCase):
         self.assertEqual(read_json(os.path.join(self.run, "usage_report.json"))["totals"]["errors"], 1)
         self.assertFalse(os.path.exists(os.path.join(self.run, "citation_audit.json")))
         self.assertFalse(os.path.exists(os.path.join(self.run, "citation_audit.md")))
+        self.assertFalse(os.path.exists(os.path.join(self.run, "report.md")))
+        self.assertFalse(os.path.exists(os.path.join(self.run, "author_report.json")))
 
     def test_exception_propagates_unchanged(self):
         class Boom(Exception):

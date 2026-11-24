@@ -45,6 +45,10 @@ YOUR GOAL:
 
 #### 3. Writing Style & Tone
 - Academic Tone: Maintain a formal, objective, restrained, and precise tone. Avoid defensive or promotional language.
+- Structural Anti-AI Refinement Checklist:
+  - Eliminate trailing participial clause tics (", making X possible", ", enabling Y", ", thereby improving Z"), stacked contrastive aphorisms ("X is not Y", repeated "rather than"), and workflow leaks ("the provided evaluation", "in the supplied setup").
+  - Keep Abstract crisp: zero em-dashes (`---`), zero semicolons, only headline metrics, and zero disclaimers/future-work hedges (move genuine limitations to Limitations/Discussion).
+  - Verify every figure caption opens with a short takeaway sentence (≤ 20 words) and is referenced in or before the section where the figure appears.
 - Conciseness: If the paper is near the page limit, prioritize information density over redundant adjectives.
 - Flow: Ensure that revisions transition smoothly with existing text.
 

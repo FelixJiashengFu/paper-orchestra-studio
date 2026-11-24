@@ -49,3 +49,21 @@ pre-submission audit checks are adapted from `Boom5426/Nature-Paper-Skills`
 | `paper-orchestra/templates/journal-nature{,-methods,-biotech}/` | `nature-portfolio-playbook`, `figure-style` | *Nature*, *Nature Methods*, and *Nature Biotechnology* venue profiles and guidelines |
 | `paper-orchestra/utils/venue_profile.py` (`venue_note`) | `manuscript-optimizer`, `scientific-prose-style`, `anti-defensive-writing`, `stats-reporting-audit` | Claim-driven planning, anti-AI prose restraint, and statistical completeness for journal runs |
 | `paper-orchestra/tools/submission_tools.py` (`cmd_manuscript_audit`) | `scientific-prose-style/scripts/ai_tells.py`, `submission-audit/scripts/check_figure_refs.py`, `draft-marker-discipline/scripts/prose_wordcount.py`, `stats-reporting-audit`, `data-availability` | Offline `manuscript-audit` check panel in 「投稿工具 → 论文体检 (Nature)」 |
+
+---
+
+## Best-Paper-Writing-Skill
+
+Selected narrative routing rules, quantitative structural AI-rhythm metrics,
+award-paper figure audit rules, Matplotlib print stylesheet, and author delivery
+report workflow are adapted from `gulucaptain/Best-Paper-Writing-Skill`
+(`https://github.com/gulucaptain/Best-Paper-Writing-Skill`, licensed under CC BY 4.0):
+
+| Here | From Best-Paper-Writing-Skill | Purpose |
+|---|---|---|
+| `paper-orchestra/tools/submission_tools.py` (`audit_text_draft`, `_audit_ai_tells`, `_audit_figure_refs`) | `scripts/style_metrics.py`, `scripts/check_draft.py`, `scripts/check_figures.py` | Syntactic AI-rhythm checks (participle tails, antithesis density, short runs, number budgets) and conference figure checks |
+| `paper-orchestra/methods/prompts/{outline,literature_review,section_writing,content_refinement}_agent.py` | `references/routing.md`, `references/claim-calibration.md`, `references/figures.md` | L1–L8 paper-type × motivation routing, claim-strength ladder, Figure 1 type selection |
+| `paper-orchestra/utils/bestpaper_style.mplstyle`, `tools/figure_studio.py` | `assets/figures/bestpaper.mplstyle` | Print-ready Matplotlib rcParams preset |
+| `paper-orchestra/tools/latex_copilot.py` (`polish-abstract`), `utils/author_report.py` | `SKILL.md` (Mode B change table & Step 8 `report.md`) | Field diagnosis + sentence change-table abstract polishing and `report.md` delivery summary |
+
+Copyrighted paper excerpts in Best-Paper-Writing-Skill's `references/exemplars/` were **not** copied or included.

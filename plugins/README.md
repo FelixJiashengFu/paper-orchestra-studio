@@ -27,9 +27,9 @@ Antigravity and Claude Desktop use distinct native plugin manifest formats, so t
 11. `po_custom_skills` — 5 built-in Studio SOP skills + shared custom `.md` CRUD (`list`, `get`, `save`, `import_file`, `delete`), remote `SKILL.md` fetcher & execution
 12. `po_figure_studio` — 3-route plotting (`data_code`, `schematic_svg`, `concept_image`), version bundles, normalized `bbox` (`'x,y,w,h'` or `{x,y,w,h}`) local revision, restore
 13. `po_literature_library` — 8-source search, DOI/PDF import into SQLite, paginated `list` (`folder`/`offset`/`limit`), citation knowledge graph, BibTeX & GB/T 7714 export
-14. `po_latex_copilot` — AI LaTeX editing copilot & inline claim-to-citation traceability
+14. `po_latex_copilot` — AI LaTeX editing copilot (`edit` with line ranges), inline claim-to-citation traceability (`trace_citations`), and award-paper abstract diagnosis + sentence change-table polishing (`polish_abstract`)
 15. `po_latex_workbench` — Conflict-safe `open`/`read`/`save` (`expected_mtime_ms` + `.edit_backup/`), `restore`, auto-CJK XeLaTeX (`-pdfxe`) / pdfLaTeX `compile` with structured issues, bidirectional SyncTeX (`sync_view` multi-line highlight box & `sync_edit` click-to-jump), clean `export_overleaf` ZIP
-16. `po_submission_audit` — All 8 checks: `manuscript-audit` (Nature), `cite-online`, `arxiv`, `blind`, `diagnose`, `versions`, `diff` (`latexdiff`), `lean-audit`
+16. `po_submission_audit` — Submission verification & author report tools: Nature + award-paper structural AI-rhythm/figure `manuscript-audit`, `author-report` (`report.md`), live `cite-online` DOI/arXiv/S2 verification, `arxiv`, `blind`, `diagnose`, `versions`, `diff` (`latexdiff`), `lean-audit`
 17. `po_export_document` — Claude Artifacts-style offline interactive HTML (TOC, Paper/Light/Dark themes, provenance pills, MathML, SVG Mermaid), Word `.docx`, PDF, Google Drive
 18. `po_compute_and_memory` — Persistent Research Memories & Preferences + SSH/GPU hosts (`nvidia-smi` probe, remote `exec`, `scp`)
 19. `po_studio_bridge` — Loopback TCP v1 bridge to running Studio Desktop app (`status`, auto-launch & `open_studio`, bridge jobs) & `integrations/` launcher

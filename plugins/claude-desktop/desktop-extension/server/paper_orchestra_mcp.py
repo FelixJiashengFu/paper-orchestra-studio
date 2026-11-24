@@ -2583,6 +2583,19 @@ def tool_latex_copilot(ctx: RuntimeContext, args: Dict[str, Any]) -> Dict[str, A
             cli.extend(["--tex-file", str(args["tex_file"])])
         return ctx.run_json_tool("tools/latex_copilot.py", cli, timeout=60)
 
+    if action == "polish_abstract":
+        mode = str(args.get("mode") or "diagnose").strip().lower()
+        cli = ["polish-abstract", "--mode", mode, "--model", str(args.get("model") or "auto")]
+        if args.get("text"):
+            cli.extend(["--text", str(args["text"])])
+        if args.get("intro_text"):
+            cli.extend(["--intro-text", str(args["intro_text"])])
+        if args.get("file_path"):
+            cli.extend(["--file", os.path.abspath(os.path.expanduser(str(args["file_path"])))])
+        if args.get("run_dir"):
+            cli.extend(["--run-dir", os.path.abspath(os.path.expanduser(str(args["run_dir"])))])
+        return ctx.run_json_tool("tools/latex_copilot.py", cli, timeout=180)
+
     raise RuntimeError(f"Unsupported latex_copilot action: {action}")
 
 
@@ -3245,7 +3258,7 @@ def tool_submission_audit(ctx: RuntimeContext, args: Dict[str, Any]) -> Dict[str
             cli.append("--merge-inputs")
         return ctx.run_json_tool("tools/submission_tools.py", cli, timeout=180)
 
-    if action in ("blind", "versions", "manuscript-audit"):
+    if action in ("blind", "versions", "manuscript-audit", "author-report"):
         return ctx.run_json_tool("tools/submission_tools.py", [action, run_dir], timeout=120)
 
     if action == "diagnose":
@@ -4664,9 +4677,9 @@ TOOLS: List[Tuple[str, str, Dict[str, Any], Any, Optional[Dict[str, Any]]]] = [
     ),
     (
         "po_latex_copilot",
-        "AI LaTeX editing copilot (`edit`: supports line selection ranges & error logs) and inline claim-to-citation traceability (`trace_citations`).",
+        "AI LaTeX editing copilot (`edit`: supports line selection ranges & error logs), inline claim-to-citation traceability (`trace_citations`), and award-paper abstract diagnosis & sentence change-table polishing (`polish_abstract`).",
         _schema({
-            "action": {"type": "string", "enum": ["edit", "trace_citations"]},
+            "action": {"type": "string", "enum": ["edit", "trace_citations", "polish_abstract"]},
             "file_path": {"type": "string"},
             "instruction": {"type": "string"},
             "selection_start": {"type": "integer"},
@@ -4674,6 +4687,9 @@ TOOLS: List[Tuple[str, str, Dict[str, Any], Any, Optional[Dict[str, Any]]]] = [
             "error_log": {"type": "string"},
             "run_dir": {"type": "string"},
             "tex_file": {"type": "string"},
+            "text": {"type": "string", "description": "Optional inline abstract text for action='polish_abstract'"},
+            "intro_text": {"type": "string", "description": "Optional inline introduction context for action='polish_abstract'"},
+            "mode": {"type": "string", "enum": ["diagnose", "rewrite"], "description": "Offline diagnosis ('diagnose') or AI sentence change-table rewrite ('rewrite')"},
             "model": {"type": "string"},
         }, ["action"]),
         tool_latex_copilot,
@@ -4704,9 +4720,9 @@ TOOLS: List[Tuple[str, str, Dict[str, Any], Any, Optional[Dict[str, Any]]]] = [
     ),
     (
         "po_submission_audit",
-        "Run all 8 pre-submission verification tools: Nature `manuscript-audit`, live `cite-online` DOI/arXiv/S2 verification, `arxiv` submission zip, double-`blind` leak check, LaTeX log `diagnose`, draft `versions`, `latexdiff` PDF (`diff`), and `lean-audit` formal proof verification.",
+        "Run pre-submission verification & author report tools: Nature + award-paper style/figure `manuscript-audit`, `author-report` (`report.md`), live `cite-online` DOI/arXiv/S2 verification, `arxiv` submission zip, double-`blind` leak check, LaTeX log `diagnose`, draft `versions`, `latexdiff` PDF (`diff`), and `lean-audit` formal proof verification.",
         _schema({
-            "action": {"type": "string", "enum": ["manuscript-audit", "cite-online", "arxiv", "blind", "diagnose", "versions", "diff", "lean-audit"]},
+            "action": {"type": "string", "enum": ["manuscript-audit", "author-report", "cite-online", "arxiv", "blind", "diagnose", "versions", "diff", "lean-audit"]},
             "run_dir": {"type": "string"},
             "project_dir": {"type": "string"},
             "out_path": {"type": "string"},

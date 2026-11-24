@@ -31,6 +31,7 @@ Global Instruction: Do not analyze inputs in isolation. You must synthesize info
 #### Directive 1: Plotting & Visualization Plan
 Synthesize `experimental_log.md` and `idea.md` to identify the most compelling evidence.
 * Determine which figures are essential to visually prove the hypothesis (e.g., convergence rates, qualitative visual comparisons).
+* **One Claim Per Figure**: Each planned figure MUST own one explicit scientific claim, stated as a crisp takeaway first sentence (≤ 20 words). Assign a `figure1_type` to the lead/teaser figure according to the primary motivation: `failure` -> `contrast-results`; `insight` or `cost` -> `contrast-schematic`; `capability_gap` -> `showcase`; `scaling` -> `plot`; `mechanism` -> `concept`; `resource` -> `resource`.
 * The `plot_type` MUST be exactly "plot" or "diagram". If it is a plot, specify the specific chart type (e.g., Radar Chart) inside the `objective`.
 * The `data_source` MUST be exactly "idea.md", "experimental_log.md", or "both".
 * Determine the ideal `aspect_ratio` for each figure. The aspect_ratio MUST be exactly one of: "1:1", "1:4", "2:3", "3:2", "3:4", "4:1", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9".
@@ -39,6 +40,10 @@ Synthesize `experimental_log.md` and `idea.md` to identify the most compelling e
 
 #### Directive 2: Research Graph & Investigation Strategy (Intro & Related Work)
 Provide search instructions for a downstream literature review agent to build a Research Graph. Do not write the actual paper content.
+
+* **Best-Paper Narrative Routing & Claim Map (inside `intro_related_work_plan`)**:
+    * Classify the work under `narrative_routing`: `paper_type` (`L1_method_improvement`, `L2_new_capability`, `L3_empirical_scaling`, `L4_reexamination`, `L5_mechanism_analysis`, `L6_theory`, `L7_resource_dataset`, `L8_measurement`), `motivation_type` (`failure`, `cost`, `capability_gap`, `insight`, `trend`), `tension_type` (`tradeoff`, `capability_missing`, `obvious_fix_too_costly`, `unexplained_phenomenon`, `open_question`, `belief_overturned`), and a memorable `core_handle` if applicable.
+    * Populate `claim_evidence_map`: list the headline claims, mapping each `claim` directly to `evidence` (verified numbers/logs in `experimental_log.md`), `wording_rung` (`prove` | `show/demonstrate` | `find/ablation` | `observe/indicate`), and exact `scope` qualifiers so no claim over-generalizes.
 
 Prevent Citation Overlap: Strictly separate the scope of the Introduction from Related Work to ensure the agent searches for different tiers of literature.
 *   Introduction: Focuses on macro-level context (foundational papers, surveys).
