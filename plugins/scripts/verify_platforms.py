@@ -63,7 +63,7 @@ def read_frontmatter(path: Path) -> Dict[str, str]:
 def rpc(command: List[str], cwd: Path, env: Dict[str, str], requests: List[Dict[str, Any]]) -> Dict[int, Dict[str, Any]]:
     """Run a stdio MCP server, send newline-delimited JSON-RPC requests, return responses by id."""
     payload = "".join(json.dumps(r) + "\n" for r in requests)
-    proc = subprocess.run(command, cwd=str(cwd), env=env, input=payload, capture_output=True, text=True, timeout=60)
+    proc = subprocess.run(command, cwd=str(cwd), env=env, input=payload, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60)
     out: Dict[int, Dict[str, Any]] = {}
     for line in proc.stdout.splitlines():
         try:

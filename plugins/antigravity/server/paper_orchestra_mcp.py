@@ -6206,6 +6206,14 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--self-check", action="store_true", help="Print environment summary and exit")
     args = parser.parse_args(argv)
 
+    # MCP stdio is UTF-8. On Windows a piped stdout defaults to the ANSI code page,
+    # which cannot encode CJK text and would crash the first non-ASCII reply.
+    for stream, errors in ((sys.stdin, "replace"), (sys.stdout, "strict"), (sys.stderr, "backslashreplace")):
+        try:
+            stream.reconfigure(encoding="utf-8", errors=errors)
+        except (AttributeError, ValueError, OSError):
+            pass
+
     ctx = RuntimeContext()
     if args.self_check:
         res = {
