@@ -1,0 +1,1 @@
+{ "name": "paper-orchestra-pane", "version": "0.2.0", "description": "PaperOrchestra Studio workbench pane in the sidebar", "types": "./types/index.d.ts" }

@@ -12,6 +12,8 @@ Five agent platforms, one feature set. Every bundle is generated from `plugins/s
 | **Qoder** | `integrations/qoder-plugin/` | `.qoder-plugin/plugin.json` | `.mcp.json` (`${QODER_PLUGIN_ROOT}`) | 12 | agent | (install by path or zip) |
 | **WorkBuddy / CodeBuddy** | `plugins/workbuddy/` | `.codebuddy-plugin/plugin.json` | `.mcp.json` (`${CODEBUDDY_PLUGIN_ROOT}`) | 12 | agent | `.codebuddy-plugin/marketplace.json` |
 
+**Claude Code sidebar pane (`/po-pane`)** lives in `plugins/claude-code-pane/`. It is a Claude Code mod that draws a live panel from the shared server's tools; other hosts have no pane extension point and use the same tools plus the MCP Apps workbench instead. The verifier checks that every tool the pane calls still exists.
+
 **Coder (coder.com) workspaces** have no plugin format of their own: they run Claude Code or Codex remotely. `plugins/coder/` holds a workspace install script and a template snippet that load the same bundles there; the verifier checks that recipe too.
 
 The guardrails that Antigravity loads from `rules/AGENTS.md` are also sent by the server in its MCP `initialize` instructions, so hosts whose plugin format has no always-on rules receive them too.

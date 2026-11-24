@@ -39,6 +39,8 @@ class PlatformParityTest(unittest.TestCase):
         self.assertGreaterEqual(len(base["tools"]), 23)
         self.assertTrue(base["instructions"], "initialize must carry the shared guardrail instructions")
         for key, plat in self.report["platforms"].items():
+            if key == "claude-code-pane":  # a mod that calls the server; it launches none itself
+                continue
             launched = [c for c in plat["checks"] if "(python)" in c["name"]]
             self.assertEqual([c["status"] for c in launched], ["pass"], key)
 
@@ -46,6 +48,8 @@ class PlatformParityTest(unittest.TestCase):
     def test_bridge_server_identical_everywhere(self):
         self.assertGreater(len(self.report["baseline"]["bridge"]["tools"]), 0)
         for key, plat in self.report["platforms"].items():
+            if key == "claude-code-pane":
+                continue
             launched = [c for c in plat["checks"] if "(bridge)" in c["name"]]
             self.assertEqual([c["status"] for c in launched], ["pass"], key)
 
@@ -62,6 +66,11 @@ class PlatformParityTest(unittest.TestCase):
     def test_minimal_agent_keeps_body_and_drops_extra_keys(self):
         src = "---\nname: a\ndescription: >-\n  two\n  lines\nmodel: inherit\ncolor: blue\n---\n\nBody\n"
         self.assertEqual(sync_platforms.minimal_agent(src), "---\nname: a\ndescription: >-\n  two\n  lines\n---\n\nBody\n")
+
+
+    def test_pane_mod_is_checked(self):
+        pane = self.report["platforms"]["claude-code-pane"]
+        self.assertEqual([c["status"] for c in pane["checks"]], ["pass", "pass", "pass"])
 
 
 if __name__ == "__main__":

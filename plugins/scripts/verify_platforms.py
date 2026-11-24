@@ -275,6 +275,39 @@ def check_coder_recipe(baseline: Dict[str, Any], static: bool, data_dir: Path) -
     return checks
 
 
+def check_pane_mod(baseline: Dict[str, Any]) -> List[Check]:
+    """The Claude Code sidebar pane (`/po-pane`) is a mod that drives the shared server's tools."""
+    checks: List[Check] = []
+    folder = P.PLUGINS_ROOT / "claude-code-pane"
+    try:
+        manifest = json.loads((folder / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
+        hooks = json.loads((folder / "hooks" / "hooks.json").read_text(encoding="utf-8"))
+        modules = [folder / "hooks" / m for m in hooks["modules"]]
+        missing = [m.name for m in modules if not m.is_file()]
+        types = folder / manifest.get("types", "types/index.d.ts")
+        if missing or not types.is_file() or not manifest.get("name") or not manifest.get("version"):
+            raise RuntimeError(f"incomplete mod (missing modules: {missing}, types present: {types.is_file()})")
+        checks.append(("pane mod files", "pass", f"{manifest['name']} {manifest['version']}"))
+    except Exception as exc:  # noqa: BLE001
+        checks.append(("pane mod files", "fail", f"{type(exc).__name__}: {exc}"))
+        return checks
+    source = "\n".join(m.read_text(encoding="utf-8") for m in modules)
+    server = re.search(r"const SERVER = '([^']+)'", source)
+    expected = P.PLATFORMS["claude-code"].python_server_key
+    ok = bool(server) and server.group(1) == expected
+    checks.append(("pane targets the Claude Code MCP server key", "pass" if ok else "fail",
+                   expected if ok else f"pane uses {server.group(1) if server else None!r}, plugin registers {expected!r}"))
+    called = sorted(set(re.findall(r"callJson\(\$, '([a-z_0-9]+)'", source)))
+    known = baseline.get("python", {}).get("tools")
+    if known is None:
+        known = re.findall(r'"(po_[a-z_0-9]+)"', P.SHARED_SERVER.read_text(encoding="utf-8"))
+    names = {t["name"] if isinstance(t, dict) else t for t in known}
+    gone = [t for t in called if t not in names]
+    checks.append(("pane tools exist on the shared server", "fail" if gone or not called else "pass",
+                   f"missing: {gone}" if gone else f"{len(called)} tools used"))
+    return checks
+
+
 def run(static: bool = False) -> Dict[str, Any]:
     with tempfile.TemporaryDirectory(prefix="po-verify-", ignore_cleanup_errors=True) as tmp:
         data_dir = Path(tmp)
@@ -297,6 +330,12 @@ def run(static: bool = False) -> Dict[str, Any]:
             "label": "Coder workspaces (deployment recipe for Claude Code / Codex)",
             "ok": all(c[1] != "fail" for c in coder),
             "checks": [{"name": n, "status": s, "detail": d} for n, s, d in coder],
+        }
+        pane = check_pane_mod(baseline)
+        report["platforms"]["claude-code-pane"] = {
+            "label": "Claude Code sidebar pane mod (/po-pane)",
+            "ok": all(c[1] != "fail" for c in pane),
+            "checks": [{"name": n, "status": s, "detail": d} for n, s, d in pane],
         }
     report["ok"] = all(p["ok"] for p in report["platforms"].values())
     report["skipped"] = sum(c["status"] == "skip" for p in report["platforms"].values() for c in p["checks"])

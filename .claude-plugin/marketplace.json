@@ -17,6 +17,18 @@
         "latex",
         "academic-writing"
       ]
+    },
+    {
+      "name": "paper-orchestra-pane",
+      "source": "./plugins/claude-code-pane",
+      "description": "Sidebar pane for Claude Code (/po-pane): Studio status, projects, runs, jobs, literature library and environment checks, driven by the paper-orchestra-studio plugin's tools.",
+      "version": "0.2.0",
+      "category": "productivity",
+      "tags": [
+        "research",
+        "latex",
+        "academic-writing"
+      ]
     }
   ]
 }
