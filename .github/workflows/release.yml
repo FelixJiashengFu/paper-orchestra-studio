@@ -1,0 +1,141 @@
+name: Release
+
+# Push a tag like v0.1.0 to build the installers and publish a GitHub Release.
+# Re-running for an existing tag replaces its files.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to (re)build, e.g. v0.1.0"
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  TAG: ${{ github.event.inputs.tag || github.ref_name }}
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: paper-orchestra-desktop
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: paper-orchestra-desktop/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: paper-orchestra-desktop/src-tauri
+      - run: npm ci
+      - name: Build NSIS installer
+        run: npx tauri build --bundles nsis
+      - name: Collect installer
+        run: |
+          mkdir -p ../out
+          for f in src-tauri/target/release/bundle/nsis/*-setup.exe; do
+            cp "$f" "../out/$(basename "$f" | tr ' ' '-')"
+          done
+          ls -l ../out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: out/*
+
+  macos:
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: paper-orchestra-desktop
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: paper-orchestra-desktop/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: paper-orchestra-desktop/src-tauri
+      - run: npm ci
+      - name: Build universal DMG
+        run: npx tauri build --target universal-apple-darwin --bundles dmg
+      - name: Collect DMG
+        run: |
+          mkdir -p ../out
+          for f in src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg; do
+            cp "$f" "../out/$(basename "$f" | tr ' ' '-')"
+          done
+          ls -l ../out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: out/*
+
+  packages:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - name: Build zip packages
+        run: |
+          VERSION="${TAG#v}"
+          mkdir -p out stage/PaperOrchestra-Backend
+          # Backend: tracked files only, plus the setup scripts and install guide.
+          git archive HEAD paper-orchestra | tar -x -C stage/PaperOrchestra-Backend
+          cp scripts/setup-backend.ps1 scripts/setup-backend.sh stage/PaperOrchestra-Backend/
+          cp docs/INSTALL.md stage/PaperOrchestra-Backend/INSTALL.md
+          chmod +x stage/PaperOrchestra-Backend/setup-backend.sh
+          (cd stage && zip -qr "../out/PaperOrchestra-Backend-$TAG.zip" PaperOrchestra-Backend)
+          # Qoder plugin: plugin files at the zip root, as Qoder expects.
+          git archive --format=zip -o "out/paper-orchestra-studio-$VERSION-qoder.zip" HEAD:integrations/qoder-plugin
+          # Live paper workbench.
+          git archive --format=zip --prefix=PaperOrchestra-LiveWorkbench/ \
+            -o "out/PaperOrchestra-LiveWorkbench-$TAG.zip" HEAD:integrations/live-workbench
+          ls -l out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packages
+          path: out/*
+
+  release:
+    needs: [windows, macos, packages]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Create or update the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -l dist
+          (cd dist && sha256sum * > SHA256SUMS.txt)
+          NOTES="docs/releases/$TAG.md"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+          elif [ -f "$NOTES" ]; then
+            gh release create "$TAG" dist/* --title "PaperOrchestra Studio $TAG" --notes-file "$NOTES"
+          else
+            gh release create "$TAG" dist/* --title "PaperOrchestra Studio $TAG" --generate-notes
+          fi

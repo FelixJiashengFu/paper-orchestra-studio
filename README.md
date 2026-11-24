@@ -6,6 +6,19 @@
 
 ---
 
+## 下载安装
+
+不想编译源码？直接到 **[Releases 页面](https://github.com/FelixJiashengFu/paper-orchestra-studio/releases/latest)** 下载：
+
+| 系统 | 桌面应用 | Python 后端（必装） |
+| --- | --- | --- |
+| Windows 10/11 | `PaperOrchestra-Studio_<版本>_x64-setup.exe` | `PaperOrchestra-Backend-<版本>.zip` → 运行 `setup-backend.ps1` |
+| macOS 11+（Intel / Apple 芯片） | `PaperOrchestra-Studio_<版本>_universal.dmg` | `PaperOrchestra-Backend-<版本>.zip` → 运行 `setup-backend.sh` |
+
+三步完成：**① 装 Python 3.11+ 与 TeX → ② 解压后端包运行安装脚本 → ③ 安装桌面应用并在「环境与算力」填入 API Key**。安装包暂未做代码签名，首次打开时的系统提示与完整图文步骤见 **[安装指南 docs/INSTALL.md](docs/INSTALL.md)**。
+
+---
+
 ## 核心特性
 
 * **20+ 模型平台与 19 步分任务路由**
@@ -79,6 +92,8 @@
 paper-orchestra-studio/
 ├── paper-orchestra/            # Python 多智能体论文流水线、模板库、核查/投稿工具与单元测试
 ├── paper-orchestra-desktop/    # Tauri (Rust + React/TypeScript) 桌面端应用与打包脚本
+├── integrations/               # Qoder 插件、实时论文工作台、工具树与 Canvas 控制台
+├── scripts/                    # 后端一键安装脚本（setup-backend.ps1 / .sh）
 ├── docs/screenshots/           # 桌面工作台实际使用界面与实例截图
 ├── LICENSE                     # Apache License 2.0
 └── THIRD_PARTY_NOTICES.md      # 上游与第三方开源归属声明（Google / Lattice / Nature-Paper-Skills / TeX 样式）
@@ -86,7 +101,7 @@ paper-orchestra-studio/
 
 ---
 
-## 快速开始
+## 从源码运行（开发者）
 
 ### 1. 准备 Python 后端环境（Python 3.11+）
 
