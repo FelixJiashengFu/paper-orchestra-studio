@@ -88,7 +88,7 @@
 
 ## 五平台智能体插件（Claude Code / Antigravity / Codex / Qoder / WorkBuddy）
 
-同一套功能在五个平台上等价提供：共享的零依赖 Python MCP 服务（23 个工具 + 6 个资源 + 5 个提示词）、Studio 桌面桥接服务（71 个工具）与 12 个工作流技能（含 v1.2.0 新增的审稿回复、选刊与投稿预检、论断证据核查、报告与海报、端到端投稿审计）。安装方式与对照表见 **[plugins/README.md](plugins/README.md)**。
+同一套功能在五个平台上等价提供：共享的零依赖 Python MCP 服务（24 个工具 + 6 个资源 + 5 个提示词）、Studio 桌面桥接服务（71 个工具）与 12 个工作流技能（含 v1.2.0 新增的审稿回复、选刊与投稿预检、论断证据核查、报告与海报、端到端投稿审计）。安装方式与对照表见 **[plugins/README.md](plugins/README.md)**。
 
 ```bash
 python3 plugins/scripts/verify_platforms.py     # 一条命令校验五个平台功能一致（38 项检查）

@@ -1,6 +1,6 @@
 # PaperOrchestra Studio Plugins (Claude Code · Antigravity · Codex · Qoder · WorkBuddy)
 
-Five agent platforms, one feature set. Every bundle is generated from `plugins/shared/` and ships the same **zero-dependency Python MCP server** (`shared/mcp_server/paper_orchestra_mcp.py`, v1.2.0, **23 model-visible tools + 1 app-only snapshot tool**, **6 resources** including 2 SEP-1865 MCP Apps, **5 prompts**), the same **Studio desktop bridge server** (71 tools, Node), and the same **12 workflow skills**.
+Five agent platforms, one feature set. Every bundle is generated from `plugins/shared/` and ships the same **zero-dependency Python MCP server** (`shared/mcp_server/paper_orchestra_mcp.py`, v1.2.0, **24 model-visible tools + 1 app-only snapshot tool**, **6 resources** including 2 SEP-1865 MCP Apps, **5 prompts**), the same **Studio desktop bridge server** (71 tools, Node), and the same **12 workflow skills**.
 
 ## Five-Platform Parity
 
@@ -39,7 +39,7 @@ python3 plugins/scripts/install.py --platform all    # build per-platform zips i
 
 <details><summary>Previous introduction (kept for reference)</summary>
 
-Antigravity and Claude Desktop use distinct native plugin manifest formats, so this repository ships **two dedicated native plugin bundles** powered by **one shared zero-dependency Python MCP server** (`shared/mcp_server/paper_orchestra_mcp.py`, v1.1.0, exposing **23 model-visible tools + 1 app-only snapshot tool**, **6 resources** including 2 SEP-1865 MCP Apps, and **5 prompts** across 100% of PaperOrchestra Studio's capabilities).
+Antigravity and Claude Desktop use distinct native plugin manifest formats, so this repository ships **two dedicated native plugin bundles** powered by **one shared zero-dependency Python MCP server** (`shared/mcp_server/paper_orchestra_mcp.py`, v1.1.0, exposing **24 model-visible tools + 1 app-only snapshot tool**, **6 resources** including 2 SEP-1865 MCP Apps, and **5 prompts** across 100% of PaperOrchestra Studio's capabilities).
 
 </details>
 
@@ -47,8 +47,8 @@ Antigravity and Claude Desktop use distinct native plugin manifest formats, so t
 
 | Platform | Bundle Format | Location | Included Components |
 | --- | --- | --- | --- |
-| **Antigravity** | `plugin.json` + `mcp_config.json` + MCP Apps | `plugins/antigravity/` | 23 MCP Tools + `ui://` Workbench & Tool Tree (`aux_pane` / `global`), 6 Resources, 5 Prompts, 6 `po-*` Skills, Always-on `AGENTS.md` Rules, SVG Logo |
-| **Claude Desktop Cowork / Code** | `.claude-plugin/plugin.json` + `.mcp.json` (`.plugin` zip) | `plugins/claude-desktop/cowork-plugin/` & `dist/paper-orchestra-studio.plugin` | 23 MCP Tools, 6 Resources, 5 Prompts, 6 `po-*` Skills, `paper-orchestra-auditor` Subagent |
+| **Antigravity** | `plugin.json` + `mcp_config.json` + MCP Apps | `plugins/antigravity/` | 24 MCP Tools + `ui://` Workbench & Tool Tree (`aux_pane` / `global`), 6 Resources, 5 Prompts, 6 `po-*` Skills, Always-on `AGENTS.md` Rules, SVG Logo |
+| **Claude Desktop Cowork / Code** | `.claude-plugin/plugin.json` + `.mcp.json` (`.plugin` zip) | `plugins/claude-desktop/cowork-plugin/` & `dist/paper-orchestra-studio.plugin` | 24 MCP Tools, 6 Resources, 5 Prompts, 6 `po-*` Skills, `paper-orchestra-auditor` Subagent |
 | **Claude Desktop Extension** | MCPB `manifest_version: "0.3"` (`.mcpb` zip) | `plugins/claude-desktop/desktop-extension/` & `dist/paper-orchestra-studio.mcpb` | One-click GUI-configurable MCP extension (`user_config` overrides) |
 | **Claude Desktop Chat** | `claude_desktop_config.json` | `plugins/claude-desktop/scripts/install-claude-desktop.sh` | Safe atomic registration on internal disk (`~/.local/share/paper-orchestra-studio-plugin/`) |
 | **Qoder Desktop** *(companion)* | `.qoder-plugin/plugin.json` + `.mcp.json` | `integrations/qoder-plugin/` | Bridge-powered Qoder Desktop plugin (`mcp/server.mjs`) & `paper-orchestra-studio` skill |
@@ -78,6 +78,7 @@ Antigravity and Claude Desktop use distinct native plugin manifest formats, so t
 21. `po_open_workbench` — Interactive 9-tab MCP App UI (Overview + Canvas Collaboration Console, Projects, Runs, Paginated Library, Interactive Drag-Box Figure Bench, Overleaf-style side-by-side LaTeX Co-Editor with paginated PDF preview & bidirectional SyncTeX highlight/jump, Audits & Exports, Skills/Env, Safe Tools Console)
 22. `po_open_tool_tree` — Interactive 10-group PaperOrchestra Tool Tree MCP App UI (`aux_pane`)
 23. `po_revision_toolkit` — Deterministic revision & submission checks without an LLM call: `review_matrix` (atomic reviewer comments with IDs, type, severity, Markdown response matrix), `preflight` (page/word/abstract limits, placeholders, undefined references, double-blind leaks, required statements), `retraction_check` (Crossref retraction / concern / correction notices per DOI), `reporting_checklist` (CONSORT, PRISMA, STROBE, ARRIVE, ML reproducibility)
+24. `po_reference_sync` — Zotero (local Zotero 7 API or web API): `zotero_search`, `zotero_import` into the SQLite library (keeps notes and reading status on re-import), `zotero_bibtex` merge into a run's `.bib` with backup, `library_to_ris` export; Overleaf git integration: `overleaf_link`, `overleaf_pull` (never overwrites differing files without `allow_overwrite`), `overleaf_push` (dry run unless `confirm_push=true`, fast-forward only, never deletes); `status`. Credentials only from `ZOTERO_API_KEY` / `ZOTERO_USER_ID` / `OVERLEAF_GIT_TOKEN`
 (+ internal app-only `po_ui_snapshot` powering live UI refreshes, local figure previews, PyMuPDF `render_pdf_page` with page point geometry, and OS viewer fallback `open_file_external`)
 
 ## Rebuild Archives

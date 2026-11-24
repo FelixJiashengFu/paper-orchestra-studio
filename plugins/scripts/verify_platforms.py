@@ -155,7 +155,7 @@ def check_platform(plat: P.Platform, baseline: Dict[str, Any], static: bool, dat
             add(f"manifest {rel}", False, str(exc))
 
     # 2. Bundled files identical to the shared source
-    prefix = str(plat.root.relative_to(P.REPO_ROOT)) + "/"
+    prefix = plat.root.relative_to(P.REPO_ROOT).as_posix() + "/"
     stale = [d for d in sync_platforms.drift() if d.split(": ", 1)[1].startswith(prefix)]
     add("bundle in sync with plugins/shared", not stale, "; ".join(stale[:3]) or "server, UI, bridge, skills, agents byte-identical")
 
@@ -209,7 +209,7 @@ def check_platform(plat: P.Platform, baseline: Dict[str, Any], static: bool, dat
             if script is None or not script.is_file():
                 raise RuntimeError(f"entry script not found: {script}")
             if static:
-                add(label, "pass", f"registered; entry {script.relative_to(P.REPO_ROOT)} (not launched)")
+                add(label, "pass", f"registered; entry {script.relative_to(P.REPO_ROOT).as_posix()} (not launched)")
                 continue
             if command[0] in ("python3", "python"):
                 command[0] = sys.executable  # test the bundle, not this machine's PATH spelling
@@ -230,7 +230,7 @@ def check_platform(plat: P.Platform, baseline: Dict[str, Any], static: bool, dat
 
 
 def run(static: bool = False) -> Dict[str, Any]:
-    with tempfile.TemporaryDirectory(prefix="po-verify-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="po-verify-", ignore_cleanup_errors=True) as tmp:
         data_dir = Path(tmp)
         env = dict(os.environ, PAPER_ORCHESTRA_PLUGIN_DATA=tmp, PAPER_ORCHESTRA_DB=str(data_dir / "verify.db"))
         baseline: Dict[str, Any] = {"python": {}, "bridge": {}}

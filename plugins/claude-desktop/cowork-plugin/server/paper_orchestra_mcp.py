@@ -3892,6 +3892,374 @@ def _flatten_strings(obj: Any) -> List[str]:
     return []
 
 
+# ---------------------------------------------------------------------------
+# Reference manager and Overleaf sync (Zotero local/web API, Overleaf git bridge)
+# ---------------------------------------------------------------------------
+
+_ZOTERO_LOCAL_BASE = "http://127.0.0.1:23119"
+_OVERLEAF_GIT_HOST = "https://git.overleaf.com"
+_OVERLEAF_SYNC_EXTS = (".tex", ".bib", ".sty", ".cls", ".bst", ".bbx", ".cbx", ".png", ".jpg", ".jpeg", ".pdf", ".eps", ".svg", ".tikz", ".csv")
+
+
+def _secret_setting(ctx: RuntimeContext, name: str) -> str:
+    return _clean_env(name) or str(ctx.dotenv_vars.get(name) or "").strip()
+
+
+def _zotero_endpoint(ctx: RuntimeContext, args: Dict[str, Any]) -> Tuple[str, Dict[str, str], str]:
+    """Return (library base URL, headers, source label). Keys are read from the environment, never from arguments."""
+    source = str(args.get("source") or "auto").strip().lower()
+    api_key = _secret_setting(ctx, "ZOTERO_API_KEY")
+    user_id = _secret_setting(ctx, "ZOTERO_USER_ID")
+    group_id = str(args.get("group_id") or _secret_setting(ctx, "ZOTERO_GROUP_ID")).strip()
+    headers = {"User-Agent": f"{SERVER_NAME}/{SERVER_VERSION}", "Zotero-API-Version": "3"}
+    if source == "auto":
+        source = "local" if _zotero_local_alive() else ("web" if api_key else "local")
+    if source == "web":
+        if not api_key or not (user_id or group_id):
+            raise RuntimeError("Zotero web API needs ZOTERO_API_KEY and ZOTERO_USER_ID (or ZOTERO_GROUP_ID) in the environment or paper-orchestra/.env")
+        if not re.fullmatch(r"\d+", group_id or user_id):
+            raise RuntimeError("Zotero user or group id must be numeric")
+        headers["Zotero-API-Key"] = api_key
+        return ("https://api.zotero.org/" + (f"groups/{group_id}" if group_id else f"users/{user_id}")), headers, "web"
+    if source != "local":
+        raise RuntimeError("`source` must be auto, local or web")
+    headers["Zotero-Allowed-Request"] = "1"
+    return _ZOTERO_LOCAL_BASE + ("/api/groups/" + group_id if re.fullmatch(r"\d+", group_id or "") else "/api/users/0"), headers, "local"
+
+
+def _zotero_local_alive(timeout: float = 1.5) -> bool:
+    import urllib.request
+
+    try:
+        req = urllib.request.Request(_ZOTERO_LOCAL_BASE + "/connector/ping", headers={"User-Agent": SERVER_NAME})
+        with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 - loopback only
+            return resp.status == 200
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _http_get_text(url: str, headers: Dict[str, str], timeout: float) -> str:
+    import urllib.request
+
+    req = urllib.request.Request(url, headers=headers)
+    with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 - fixed Zotero hosts
+        return resp.read().decode("utf-8", errors="replace")
+
+
+def _zotero_query(args: Dict[str, Any], fmt: str) -> str:
+    import urllib.parse
+
+    params: Dict[str, str] = {"format": fmt, "limit": str(max(1, min(100, int(args.get("limit") or 25)))), "itemType": "-attachment || note"}
+    if args.get("query"):
+        params["q"] = str(args["query"])
+    if args.get("tag"):
+        params["tag"] = str(args["tag"])
+    keys = args.get("item_keys")
+    if isinstance(keys, str):
+        keys = [k for k in re.split(r"[\s,]+", keys) if k]
+    if keys:
+        bad = [k for k in keys if not re.fullmatch(r"[A-Z0-9]{8}", str(k))]
+        if bad:
+            raise RuntimeError(f"Invalid Zotero item key(s): {bad}")
+        params["itemKey"] = ",".join(keys)
+    coll = str(args.get("collection_key") or "").strip()
+    if coll and not re.fullmatch(r"[A-Z0-9]{8}", coll):
+        raise RuntimeError("Invalid Zotero collection key")
+    return (f"/collections/{coll}/items" if coll else "/items") + "?" + urllib.parse.urlencode(params)
+
+
+def _zotero_to_library_item(entry: Dict[str, Any], folder: str) -> Optional[Dict[str, Any]]:
+    data = entry.get("data") or {}
+    title = str(data.get("title") or "").strip()
+    if not title or data.get("itemType") in ("attachment", "note", "annotation"):
+        return None
+    names = []
+    for c in data.get("creators") or []:
+        if c.get("creatorType") not in (None, "author", "editor", "inventor", "presenter", "programmer"):
+            continue
+        name = c.get("name") or " ".join(x for x in (c.get("firstName"), c.get("lastName")) if x)
+        if name:
+            names.append(str(name).strip())
+    year_m = re.search(r"(1[5-9]\d\d|20\d\d)", str(data.get("date") or ""))
+    extra = str(data.get("extra") or "")
+    arxiv = re.search(r"arXiv:\s*([\w./-]+)", extra + " " + str(data.get("url") or ""), re.IGNORECASE)
+    key = str(entry.get("key") or data.get("key") or "")
+    return {
+        "id": f"zotero-{key}" if key else "",
+        "folder": folder,
+        "title": title,
+        "authors": "; ".join(names),
+        "year": year_m.group(1) if year_m else None,
+        "venue": str(data.get("publicationTitle") or data.get("proceedingsTitle") or data.get("bookTitle") or data.get("publisher") or data.get("university") or "").strip(),
+        "doi": str(data.get("DOI") or "").strip(),
+        "arxiv_id": arxiv.group(1) if arxiv else "",
+        "url": str(data.get("url") or "").strip(),
+        "abstract_text": str(data.get("abstractNote") or "").strip(),
+        "tags": [str(t.get("tag")) for t in (data.get("tags") or []) if t.get("tag")],
+    }
+
+
+def _bib_keys(text: str) -> List[str]:
+    return [m.group(1) for m in re.finditer(r"@(?!comment|string|preamble)\w+\s*\{\s*([^,\s]+)\s*,", text, re.IGNORECASE)]
+
+
+def _ris_record(row: Dict[str, Any]) -> str:
+    venue = str(row.get("venue") or "")
+    lines = ["TY  - " + ("CONF" if re.search(r"proceedings|conference|workshop|symposium", venue, re.IGNORECASE) else "JOUR")]
+    lines.append("TI  - " + str(row.get("title") or ""))
+    for a in re.split(r"\s*;\s*|\s+and\s+", str(row.get("authors") or "")):
+        if a.strip():
+            lines.append("AU  - " + a.strip())
+    for tag, key in (("PY", "year"), ("JO", "venue"), ("DO", "doi"), ("UR", "url"), ("AB", "abstract_text")):
+        if row.get(key) not in (None, ""):
+            lines.append(f"{tag}  - " + re.sub(r"\s+", " ", str(row[key])))
+    for t in row.get("tags") or []:
+        lines.append("KW  - " + str(t))
+    lines.append("ER  - ")
+    return "\n".join(lines) + "\n"
+
+
+def _git(args: List[str], cwd: Optional[Path], token: str, timeout: int = 180) -> subprocess.CompletedProcess:
+    """Run git non-interactively. The token reaches git only through a throwaway askpass helper and env var."""
+    git = _which_tool("git")
+    if not git:
+        raise RuntimeError("git is not installed or not on PATH")
+    env = dict(os.environ, GIT_TERMINAL_PROMPT="0", PATH=_enriched_path())
+    helper: Optional[str] = None
+    if token:
+        fd, helper = tempfile.mkstemp(prefix="po-askpass-", suffix=".bat" if os.name == "nt" else ".sh")
+        with os.fdopen(fd, "w") as fh:
+            fh.write("@echo %PO_GIT_PASSWORD%\n" if os.name == "nt" else '#!/bin/sh\nprintf "%s\\n" "$PO_GIT_PASSWORD"\n')
+        os.chmod(helper, 0o700)
+        env.update(GIT_ASKPASS=helper, PO_GIT_PASSWORD=token)
+    try:
+        return subprocess.run([git, "-c", "credential.helper=", *args], cwd=str(cwd) if cwd else None, env=env,
+                              capture_output=True, text=True, timeout=timeout)
+    finally:
+        if helper and os.path.exists(helper):
+            os.unlink(helper)
+
+
+def _git_ok(args: List[str], cwd: Optional[Path], token: str, what: str) -> str:
+    proc = _git(args, cwd, token)
+    if proc.returncode != 0:
+        msg = (proc.stderr or proc.stdout).strip()[-600:]
+        raise RuntimeError(f"git {what} failed: " + (msg.replace(token, "***") if token else msg))
+    return proc.stdout
+
+
+def _overleaf_target(ctx: RuntimeContext, args: Dict[str, Any]) -> Tuple[str, Path, str]:
+    token = _secret_setting(ctx, "OVERLEAF_GIT_TOKEN")
+    remote = str(args.get("remote_url") or "").strip()
+    pid = str(args.get("project_id") or "").strip()
+    if remote:
+        if not re.match(r"^(https://|file://|/|[A-Za-z]:[\\/])", remote) or "@" in remote.split("//", 1)[-1].split("/", 1)[0]:
+            raise RuntimeError("`remote_url` must be an https:// or local git URL without embedded credentials")
+        slug = _sanitize_slug(re.sub(r"\.git$", "", remote.rstrip("/").rsplit("/", 1)[-1]), "overleaf")
+    else:
+        m = re.search(r"([0-9a-f]{24})", pid)
+        if not m:
+            raise RuntimeError("`project_id` must be the 24-character id from the Overleaf project URL (overleaf.com/project/<id>)")
+        slug = m.group(1)
+        remote = f"{_OVERLEAF_GIT_HOST}/{slug}"
+        if not token:
+            raise RuntimeError("Set OVERLEAF_GIT_TOKEN (Overleaf > Account Settings > Git Integration) in the environment or paper-orchestra/.env")
+    if remote.startswith("https://") and token:
+        remote = "https://git@" + remote[len("https://"):]
+    return remote, ctx.data_dir / "overleaf" / slug, token
+
+
+def _sync_file_set(root: Path) -> Dict[str, Path]:
+    out: Dict[str, Path] = {}
+    for dirpath, dirs, files in os.walk(root, followlinks=False):
+        dirs[:] = sorted(d for d in dirs if not d.startswith(".") and d.lower() not in ("__pycache__", "__macosx"))
+        for fn in sorted(files):
+            fp = Path(dirpath) / fn
+            if fn.startswith(".") or fp.is_symlink() or fp.suffix.lower() not in _OVERLEAF_SYNC_EXTS:
+                continue
+            if fp.suffix.lower() == ".pdf" and fp.with_suffix(".tex").is_file():
+                continue  # compiled output, not a figure
+            out[fp.relative_to(root).as_posix()] = fp
+    return out
+
+
+def _plan_copy(src_root: Path, dst_root: Path) -> Dict[str, List[str]]:
+    plan: Dict[str, List[str]] = {"add": [], "modify": [], "same": []}
+    for rel, fp in _sync_file_set(src_root).items():
+        dest = dst_root / rel
+        if not dest.is_file():
+            plan["add"].append(rel)
+        elif dest.read_bytes() != fp.read_bytes():
+            plan["modify"].append(rel)
+        else:
+            plan["same"].append(rel)
+    return plan
+
+
+def tool_reference_sync(ctx: RuntimeContext, args: Dict[str, Any]) -> Dict[str, Any]:
+    action = str(args.get("action") or "status").strip().lower().replace("-", "_")
+    timeout = max(3.0, min(60.0, float(args.get("timeout_sec") or 20.0)))
+
+    if action == "status":
+        clones = sorted(p.name for p in (ctx.data_dir / "overleaf").iterdir() if (p / ".git").is_dir()) if (ctx.data_dir / "overleaf").is_dir() else []
+        return {
+            "ok": True,
+            "zotero": {
+                "localApiReachable": _zotero_local_alive(),
+                "webApiConfigured": bool(_secret_setting(ctx, "ZOTERO_API_KEY") and (_secret_setting(ctx, "ZOTERO_USER_ID") or _secret_setting(ctx, "ZOTERO_GROUP_ID"))),
+                "hint": "Local: Zotero 7 running with Settings > Advanced > 'Allow other applications on this computer to communicate with Zotero'. Web: ZOTERO_API_KEY + ZOTERO_USER_ID.",
+            },
+            "overleaf": {
+                "git": _which_tool("git") or "",
+                "tokenConfigured": bool(_secret_setting(ctx, "OVERLEAF_GIT_TOKEN")),
+                "linkedProjects": clones,
+                "hint": "Needs Overleaf Git integration (paid plans) and OVERLEAF_GIT_TOKEN.",
+            },
+        }
+
+    if action in ("zotero_search", "zotero_import", "zotero_bibtex"):
+        base, headers, source = _zotero_endpoint(ctx, args)
+        if action == "zotero_bibtex":
+            bib = _http_get_text(base + _zotero_query(args, "bibtex"), headers, timeout)
+            keys = _bib_keys(bib)
+            out: Dict[str, Any] = {"ok": True, "source": source, "entries": len(keys), "keys": keys}
+            target_arg = str(args.get("bib_path") or "").strip()
+            if not target_arg and args.get("run_dir"):
+                run_dir = Path(os.path.expanduser(str(args["run_dir"]))).resolve()
+                src_dir, _main = _find_tex_source_and_main(run_dir, "")
+                bibs = sorted(src_dir.glob("*.bib"))
+                target_arg = str(bibs[0] if bibs else src_dir / "references.bib")
+            if not target_arg:
+                out["bibtex"] = bib
+                return out
+            target = Path(os.path.expanduser(target_arg)).resolve()
+            existing = target.read_text(encoding="utf-8", errors="replace") if target.is_file() else ""
+            have = set(_bib_keys(existing))
+            fresh = [e for e in re.split(r"\n(?=@)", bib.strip()) if e.strip() and (_bib_keys(e) or [""])[0] not in have]
+            if fresh:
+                if target.is_file():
+                    backup = target.parent / ".edit_backup" / f"{target.name}.{datetime.now().strftime('%Y%m%d_%H%M%S')}.bak"
+                    backup.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(target, backup)
+                    out["backup"] = str(backup)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                _atomic_write_bytes(target, ((existing.rstrip("\n") + "\n\n") if existing.strip() else "").encode("utf-8") + ("\n\n".join(fresh) + "\n").encode("utf-8"))
+            out.update({"bibPath": str(target), "added": [(_bib_keys(e) or [""])[0] for e in fresh], "alreadyPresent": sorted(set(keys) & have)})
+            return out
+
+        entries = json.loads(_http_get_text(base + _zotero_query(args, "json"), headers, timeout))
+        folder = str(args.get("folder") or "Zotero").strip() or "Zotero"
+        items = [it for it in (_zotero_to_library_item(e, folder) for e in entries) if it]
+        if action == "zotero_search":
+            return {"ok": True, "source": source, "count": len(items), "items": [
+                {"zoteroKey": it["id"].replace("zotero-", ""), **{k: it[k] for k in ("title", "authors", "year", "venue", "doi")}} for it in items]}
+        saved = []
+        with ctx.connect() as conn:
+            for it in items:
+                if args.get("project_id"):
+                    it["project_id"] = str(args["project_id"])
+                old = conn.execute("SELECT * FROM library_items WHERE id = ?", (it["id"],)).fetchone()
+                if old:  # keep the user's notes, PDFs and reading status on re-import
+                    for keep in ("pdf_path", "bibtex", "gb7714", "ai_notes", "read_status", "project_id"):
+                        if old[keep] and not it.get(keep):
+                            it[keep] = old[keep]
+                    it["key_claims"] = json.loads(old["key_claims_json"] or "[]")
+                row = _save_library_item_row(conn, it)
+                saved.append({"id": row["id"], "title": row["title"], "updated": bool(old)})
+            conn.commit()
+        return {"ok": True, "source": source, "imported": len(saved), "folder": folder, "items": saved}
+
+    if action == "library_to_ris":
+        ids = args.get("item_ids")
+        with ctx.connect() as conn:
+            rows = _load_library_rows(conn, [str(i) for i in ids] if ids else None)
+        if args.get("folder"):
+            rows = [r for r in rows if r.get("folder") == str(args["folder"])]
+        if not rows:
+            raise RuntimeError("No library items matched")
+        out_arg = str(args.get("out_path") or (ctx.data_dir / "exports" / "library_for_zotero.ris"))
+        target = Path(os.path.expanduser(out_arg)).resolve()
+        if target.exists() and not args.get("allow_overwrite"):
+            target = _unique_path(target.parent, target.stem, target.suffix or ".ris")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        _atomic_write_bytes(target, "\n".join(_ris_record(r) for r in rows).encode("utf-8"))
+        return {"ok": True, "items": len(rows), "outPath": str(target), "next": "In Zotero: File > Import... and choose this .ris file."}
+
+    if action in ("overleaf_link", "overleaf_pull", "overleaf_push"):
+        remote, clone, token = _overleaf_target(ctx, args)
+        if not (clone / ".git").is_dir():
+            if action != "overleaf_link":
+                raise RuntimeError("Project is not linked yet; call action='overleaf_link' first")
+            clone.parent.mkdir(parents=True, exist_ok=True)
+            _git_ok(["clone", remote, str(clone)], None, token, "clone")
+        else:
+            _git_ok(["pull", "--ff-only"], clone, token, "pull")
+        head = _git(["rev-parse", "--short", "HEAD"], clone, "").stdout.strip()
+        files = sorted(_sync_file_set(clone))
+        if action == "overleaf_link":
+            return {"ok": True, "clonePath": str(clone), "head": head, "files": files}
+
+        run_dir = Path(os.path.expanduser(str(args.get("run_dir") or ""))).resolve() if args.get("run_dir") else None
+        if run_dir is not None and not run_dir.is_dir():
+            raise RuntimeError(f"Run directory not found: {run_dir}")
+
+        if action == "overleaf_pull":
+            out = {"ok": True, "clonePath": str(clone), "head": head, "files": files}
+            target_arg = str(args.get("target_dir") or "").strip()
+            if not target_arg and run_dir is None:
+                return out
+            target = Path(os.path.expanduser(target_arg)).resolve() if target_arg else _find_tex_source_and_main(run_dir, "")[0]
+            plan = _plan_copy(clone, target)
+            out.update({"targetDir": str(target), "wouldAdd": plan["add"], "wouldModify": plan["modify"], "unchanged": len(plan["same"])})
+            if plan["modify"] and not args.get("allow_overwrite"):
+                out["applied"] = False
+                out["note"] = "Local files differ from Overleaf. Nothing was copied; pass allow_overwrite=true to take the Overleaf version (local copies are backed up to .edit_backup/)."
+                return out
+            stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            src_files = _sync_file_set(clone)
+            for rel in plan["add"] + plan["modify"]:
+                dest = target / rel
+                if dest.is_file():
+                    backup = target / ".edit_backup" / f"overleaf-{stamp}" / rel
+                    backup.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(dest, backup)
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                _atomic_write_bytes(dest, src_files[rel].read_bytes())
+            out["applied"] = True
+            if plan["modify"]:
+                out["backupDir"] = str(target / ".edit_backup" / f"overleaf-{stamp}")
+            return out
+
+        # overleaf_push
+        if run_dir is None and not args.get("source_dir"):
+            raise RuntimeError("`run_dir` or `source_dir` is required for overleaf_push")
+        src = Path(os.path.expanduser(str(args["source_dir"]))).resolve() if args.get("source_dir") else _find_tex_source_and_main(run_dir, "")[0]
+        if not src.is_dir():
+            raise RuntimeError(f"Source directory not found: {src}")
+        plan = _plan_copy(src, clone)
+        out = {"ok": True, "clonePath": str(clone), "sourceDir": str(src), "remoteHead": head,
+               "add": plan["add"], "modify": plan["modify"], "unchanged": len(plan["same"])}
+        if not (plan["add"] or plan["modify"]):
+            out.update({"pushed": False, "note": "Overleaf already matches the local source."})
+            return out
+        if not args.get("confirm_push"):
+            out.update({"pushed": False, "note": "Dry run. Nothing was sent. Show this list to the user and call again with confirm_push=true once they agree. Files that exist only on Overleaf are never deleted."})
+            return out
+        src_files = _sync_file_set(src)
+        for rel in plan["add"] + plan["modify"]:
+            dest = clone / rel
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src_files[rel], dest)
+        _git_ok(["add", "--", *(plan["add"] + plan["modify"])], clone, "", "add")
+        message = str(args.get("commit_message") or f"PaperOrchestra Studio sync ({len(plan['add'])} added, {len(plan['modify'])} modified)")[:200]
+        _git_ok(["-c", "user.name=PaperOrchestra Studio", "-c", "user.email=paper-orchestra@localhost", "commit", "-m", message], clone, "", "commit")
+        _git_ok(["push"], clone, token, "push")
+        out.update({"pushed": True, "head": _git(["rev-parse", "--short", "HEAD"], clone, "").stdout.strip(), "commitMessage": message})
+        return out
+
+    raise RuntimeError(f"Unsupported reference_sync action: {action}")
+
+
 def tool_export_document(ctx: RuntimeContext, args: Dict[str, Any]) -> Dict[str, Any]:
     action = str(args.get("action") or "export").strip().lower()
     if action == "status":
@@ -5377,6 +5745,35 @@ TOOLS: List[Tuple[str, str, Dict[str, Any], Any, Optional[Dict[str, Any]]]] = [
             "guideline": {"type": "string", "enum": ["list", "consort", "prisma", "strobe", "arrive", "ml_reproducibility"]},
         }, ["action"]),
         tool_revision_toolkit,
+        None,
+    ),
+    (
+        "po_reference_sync",
+        "Sync with Zotero and Overleaf. Zotero (local Zotero 7 API or web API): `zotero_search`, `zotero_import` into the Studio literature library, `zotero_bibtex` (fetch BibTeX and merge new keys into a run's .bib with backup), `library_to_ris` (export the Studio library for Zotero import). Overleaf (git integration): `overleaf_link`, `overleaf_pull` (optionally into a run, never overwriting differing files without `allow_overwrite`), `overleaf_push` (dry run unless `confirm_push=true`; fast-forward only, never deletes or force-pushes). `status` reports what is configured. Credentials come only from ZOTERO_API_KEY / ZOTERO_USER_ID / OVERLEAF_GIT_TOKEN in the environment or .env.",
+        _schema({
+            "action": {"type": "string", "enum": ["status", "zotero_search", "zotero_import", "zotero_bibtex", "library_to_ris", "overleaf_link", "overleaf_pull", "overleaf_push"]},
+            "source": {"type": "string", "enum": ["auto", "local", "web"]},
+            "query": {"type": "string"},
+            "tag": {"type": "string"},
+            "item_keys": {"type": "array", "items": {"type": "string"}},
+            "collection_key": {"type": "string"},
+            "group_id": {"type": "string"},
+            "limit": {"type": "integer"},
+            "folder": {"type": "string"},
+            "project_id": {"type": "string", "description": "Overleaf project id (overleaf_* actions) or Studio project id (zotero_import)"},
+            "item_ids": {"type": "array", "items": {"type": "string"}},
+            "run_dir": {"type": "string"},
+            "bib_path": {"type": "string"},
+            "out_path": {"type": "string"},
+            "target_dir": {"type": "string"},
+            "source_dir": {"type": "string"},
+            "remote_url": {"type": "string", "description": "Git URL of a self-hosted Overleaf project instead of project_id"},
+            "allow_overwrite": {"type": "boolean"},
+            "confirm_push": {"type": "boolean", "description": "Required to actually push to Overleaf; ask the user first"},
+            "commit_message": {"type": "string"},
+            "timeout_sec": {"type": "number"},
+        }, ["action"]),
+        tool_reference_sync,
         None,
     ),
     (

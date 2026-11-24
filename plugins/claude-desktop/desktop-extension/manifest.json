@@ -136,6 +136,10 @@
       "description": "Deterministic reviewer-comment matrix, venue preflight (limits, placeholders, anonymity, statements), Crossref retraction check, and reporting-guideline checklists"
     },
     {
+      "name": "po_reference_sync",
+      "description": "Zotero import / BibTeX merge / RIS export and Overleaf git pull / confirmed push"
+    },
+    {
       "name": "po_export_document",
       "description": "Export Markdown reports to interactive Claude Artifacts-style HTML, Word (.docx), PDF, or Google Drive."
     },

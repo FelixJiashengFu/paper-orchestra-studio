@@ -59,7 +59,7 @@ def load_server(data_dir: str):
 class RevisionToolkitTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.tmp = tempfile.TemporaryDirectory()
+        cls.tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         root = Path(cls.tmp.name)
         cls.mod, cls.ctx = load_server(str(root / "data"))
         cls.run_dir = root / "run"

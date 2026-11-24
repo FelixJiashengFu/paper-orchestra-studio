@@ -74,7 +74,7 @@ def plan() -> List[Tuple[Path, bytes, bool]]:
 def drift() -> List[str]:
     problems = []
     for dest, data, _ in plan():
-        rel = dest.relative_to(P.REPO_ROOT)
+        rel = dest.relative_to(P.REPO_ROOT).as_posix()
         if not dest.is_file():
             problems.append(f"missing: {rel}")
         elif dest.read_bytes() != data:

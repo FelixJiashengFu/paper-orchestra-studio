@@ -459,6 +459,36 @@ export const TOOL_NODES: ToolNodeMeta[] = [
     required: ["pdf_path"], workflow: "批量整理本地文献 PDF。", guardrail: "可选 no_llm=true 纯本地解析。", exampleArgs: { action: "import_pdf", pdf_path: "", save_to_library: true },
   },
   {
+    id: "sync_status", tool: "po_reference_sync", action: "status", title: "Zotero / Overleaf 连接状态", group: "library", risk: "read",
+    description: "检查 Zotero 本地接口是否可达、Web API 与 Overleaf Git 令牌是否已配置，以及已关联的 Overleaf 项目。",
+    required: [], workflow: "同步文献或手稿前先确认连接。", guardrail: "只返回是否已配置，绝不返回密钥内容。", exampleArgs: { action: "status" },
+  },
+  {
+    id: "sync_zotero_import", tool: "po_reference_sync", action: "zotero_import", title: "从 Zotero 导入文献库", group: "library", risk: "write",
+    description: "按关键词、标签、分类或条目键从 Zotero（本地 Zotero 7 或 Web API）读取条目并写入 Studio 文献库。",
+    required: [], workflow: "把已有的 Zotero 收藏带入知识图谱与写作流水线。", guardrail: "重复导入会保留你的笔记、PDF 路径与阅读状态。", exampleArgs: { action: "zotero_import", query: "", limit: 25 },
+  },
+  {
+    id: "sync_zotero_bib", tool: "po_reference_sync", action: "zotero_bibtex", title: "Zotero BibTeX 合并进手稿", group: "library", risk: "write",
+    description: "从 Zotero 取 BibTeX，只把手稿 .bib 中尚不存在的引用键追加进去。",
+    required: [], workflow: "写作中途补引文。", guardrail: "写入前把原 .bib 备份到 .edit_backup/，已有条目不改动。", exampleArgs: { action: "zotero_bibtex", query: "", run_dir: "" },
+  },
+  {
+    id: "sync_ris", tool: "po_reference_sync", action: "library_to_ris", title: "文献库导出 RIS（供 Zotero 导入）", group: "library", risk: "write",
+    description: "把 Studio 文献库导出为 .ris 文件，在 Zotero 中通过「文件 → 导入」读入。",
+    required: [], workflow: "把在 Studio 检索到的文献回流到 Zotero。", guardrail: "默认不覆盖已有文件。", exampleArgs: { action: "library_to_ris", folder: "" },
+  },
+  {
+    id: "sync_overleaf_pull", tool: "po_reference_sync", action: "overleaf_pull", title: "从 Overleaf 拉取手稿", group: "latex", risk: "write",
+    description: "通过 Overleaf Git 集成拉取项目，可选择复制进某次运行的源码目录。",
+    required: [], workflow: "合作者在 Overleaf 改稿后同步回本地。", guardrail: "本地文件与 Overleaf 不一致时默认不复制；确认覆盖时先备份到 .edit_backup/。", exampleArgs: { action: "overleaf_pull", project_id: "", run_dir: "" },
+  },
+  {
+    id: "sync_overleaf_push", tool: "po_reference_sync", action: "overleaf_push", title: "推送手稿到 Overleaf", group: "latex", risk: "write",
+    description: "把运行目录的 .tex / .bib / 图表文件提交并推送到 Overleaf 项目。",
+    required: [], workflow: "本地修订完成后交给合作者在 Overleaf 继续。", guardrail: "默认只预览改动；必须 confirm_push=true 才会推送。仅快进，不强推，不删除 Overleaf 上独有的文件。", exampleArgs: { action: "overleaf_push", project_id: "", run_dir: "" },
+  },
+  {
     id: "lib_list", tool: "po_literature_library", action: "list", title: "分页浏览本地文献库", group: "library", risk: "read",
     description: "按文献夹 folder 筛选并带 offset/limit（默认 25）分页读取已保存条目。",
     required: [], workflow: "高效浏览百篇级文献收藏。", guardrail: "只读分页。", exampleArgs: { action: "list", offset: 0, limit: 25 },
