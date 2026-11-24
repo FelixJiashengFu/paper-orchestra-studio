@@ -150,6 +150,16 @@ interface State {
   latexPdfLoading: boolean;
   latexPdfError: string;
   latexPdfZoom: number;
+  latexSplitView: boolean;
+  latexAutoSync: boolean;
+  latexHasSyncTeX: boolean;
+  latexCursorStartLine: number;
+  latexCursorEndLine: number;
+  latexCursorCol: number;
+  latexPdfWidthPt: number;
+  latexPdfHeightPt: number;
+  latexSyncHighlight: { page: number; h: number; v: number; top: number; W: number; H: number; lineLabel: string } | null;
+  latexSyncBusy: boolean;
   // Audit / Export
   auditResult: string;
   exportResult: string;
@@ -212,6 +222,16 @@ const state: State = {
   latexPdfLoading: false,
   latexPdfError: "",
   latexPdfZoom: 100,
+  latexSplitView: true,
+  latexAutoSync: true,
+  latexHasSyncTeX: false,
+  latexCursorStartLine: 1,
+  latexCursorEndLine: 1,
+  latexCursorCol: 1,
+  latexPdfWidthPt: 612,
+  latexPdfHeightPt: 792,
+  latexSyncHighlight: null,
+  latexSyncBusy: false,
   auditResult: "",
   exportResult: "",
   selectedSkill: null,
@@ -224,6 +244,41 @@ const state: State = {
   toolOutput: "",
   confirmModal: null,
 };
+
+let syncDebounceTimer: number | null = null;
+let pendingEditorJumpLine: number | null = null;
+let pendingScrollToHighlight = false;
+
+function offsetToLineCol(text: string, offset: number): { line: number; col: number } {
+  const clamped = Math.max(0, Math.min(text.length, offset));
+  let line = 1;
+  let lastNl = -1;
+  for (let i = 0; i < clamped; i++) {
+    if (text.charCodeAt(i) === 10) {
+      line++;
+      lastNl = i;
+    }
+  }
+  return { line, col: clamped - lastNl };
+}
+
+function lineRangeOffsets(text: string, targetLine: number): { start: number; end: number } {
+  const goal = Math.max(1, Math.floor(targetLine));
+  let line = 1;
+  let start = 0;
+  while (line < goal && start < text.length) {
+    const nl = text.indexOf("\n", start);
+    if (nl < 0) {
+      start = text.length;
+      break;
+    }
+    start = nl + 1;
+    line++;
+  }
+  const endNl = text.indexOf("\n", start);
+  const end = endNl < 0 ? text.length : endNl;
+  return { start, end };
+}
 
 const NAV_ITEMS: Array<{ id: TabId; label: string; icon: string }> = [
   { id: "overview", label: "总览与干预", icon: `<path d="M3 13h8V3H3zM13 21h8v-6h-8zM13 3v8h8V3zM3 21h8v-4H3z"/>` },
@@ -814,12 +869,98 @@ function renderFigures(): string {
 function renderLatex(): string {
   const open = state.latexOpen;
   const comp = state.latexCompileResult;
+  const hasPdfPreview = Boolean(state.latexPdfLoading || state.latexPdfDataUrl || state.latexPdfError);
+  const showSplit = Boolean(state.latexFile || hasPdfPreview);
+  const cursorLabel =
+    state.latexCursorStartLine === state.latexCursorEndLine
+      ? `L${state.latexCursorStartLine}`
+      : `L${state.latexCursorStartLine}–${state.latexCursorEndLine}`;
+
+  let highlightHtml = "";
+  const hl = state.latexSyncHighlight;
+  if (hl && hl.page === state.latexPdfPage && state.latexPdfWidthPt > 0 && state.latexPdfHeightPt > 0) {
+    const leftPct = Math.max(0, Math.min(98, (hl.h / state.latexPdfWidthPt) * 100));
+    const topPct = Math.max(0, Math.min(98, (hl.top / state.latexPdfHeightPt) * 100));
+    const widthPct = Math.max(2, Math.min(100 - leftPct, (hl.W / state.latexPdfWidthPt) * 100));
+    const heightPct = Math.max(1.2, Math.min(100 - topPct, (hl.H / state.latexPdfHeightPt) * 100));
+    highlightHtml = `<div id="ltx-sync-highlight" class="synctex-highlight" style="left:${leftPct.toFixed(3)}%;top:${topPct.toFixed(3)}%;width:${widthPct.toFixed(3)}%;height:${heightPct.toFixed(3)}%"><span class="synctex-highlight-tag">${esc(hl.lineLabel)}</span></div>`;
+  }
+
+  const editorCardHtml = state.latexFile
+    ? `<div class="card">
+        <div class="card-head">
+          <div>
+            <h3 class="mono">${esc(state.latexFile)}</h3>
+            <p class="mono">mtimeMs: ${esc(state.latexMtimeMs)} · ${state.latexHasBackup ? "存在 .edit_backup 原稿" : "尚未修改"}</p>
+          </div>
+          <div class="btn-row">
+            <span class="pill" id="ltx-cursor-badge">${esc(cursorLabel)}</span>
+            <button class="btn small primary" id="ltx-sync-to-pdf" type="button" ${state.latexSyncBusy ? "disabled" : ""}>定位到 PDF (SyncTeX)</button>
+            <label class="ltx-toggle"><input id="ltx-auto-sync" type="checkbox" ${state.latexAutoSync ? "checked" : ""}> 选中自动跟随 PDF</label>
+            <button class="btn small" id="ltx-reload" type="button">重新读取</button>
+            <button class="btn small" id="ltx-open-side" type="button">在侧栏打开源码</button>
+            <button class="btn small primary" id="ltx-save" type="button">防冲突保存 (save)</button>
+            <button class="btn small danger" id="ltx-restore" type="button" ${state.latexHasBackup ? "" : "disabled"}>恢复原稿 (restore)</button>
+          </div>
+        </div>
+        <div class="card-body">
+          <textarea id="ltx-editor" class="code-editor">${esc(state.latexContent)}</textarea>
+        </div>
+      </div>`
+    : "";
+
+  const pdfCardHtml =
+    state.latexFile || hasPdfPreview
+      ? `<div class="card">
+          <div class="card-head">
+            <div>
+              <h3>内置分页 PDF 预览</h3>
+              <p class="mono">${
+                state.latexPdfPath
+                  ? `${esc(state.latexPdfPath.split("/").pop() || "preview.pdf")} · 第 ${state.latexPdfPage} / ${state.latexPdfPageCount || "?"} 页${state.latexHasSyncTeX ? " · 点击 PDF 可反向定位源码" : ""}`
+                  : "尚未加载 PDF 预览"
+              }</p>
+            </div>
+            <div class="btn-row">
+              <button class="btn small" id="ltx-pdf-first" type="button" ${!state.latexPdfPath || state.latexPdfPage <= 1 || state.latexPdfLoading ? "disabled" : ""}>首页</button>
+              <button class="btn small" id="ltx-pdf-prev" type="button" ${!state.latexPdfPath || state.latexPdfPage <= 1 || state.latexPdfLoading ? "disabled" : ""}>上一页</button>
+              <input class="pdf-jump-input" id="ltx-pdf-jump" type="number" min="1" max="${Math.max(1, state.latexPdfPageCount || 1)}" value="${state.latexPdfPage}" ${state.latexPdfPath ? "" : "disabled"}>
+              <button class="btn small" id="ltx-pdf-jump-go" type="button" ${!state.latexPdfPath || state.latexPdfLoading ? "disabled" : ""}>跳转</button>
+              <button class="btn small" id="ltx-pdf-next" type="button" ${!state.latexPdfPath || (state.latexPdfPageCount > 0 && state.latexPdfPage >= state.latexPdfPageCount) || state.latexPdfLoading ? "disabled" : ""}>下一页</button>
+              <button class="btn small" id="ltx-pdf-last" type="button" ${!state.latexPdfPath || state.latexPdfPageCount <= 0 || state.latexPdfPage >= state.latexPdfPageCount || state.latexPdfLoading ? "disabled" : ""}>末页</button>
+              <button class="btn small" id="ltx-pdf-zoom-out" type="button" ${!state.latexPdfDataUrl || state.latexPdfZoom <= 80 ? "disabled" : ""}>-</button>
+              <span class="pill">${state.latexPdfZoom}%</span>
+              <button class="btn small" id="ltx-pdf-zoom-in" type="button" ${!state.latexPdfDataUrl || state.latexPdfZoom >= 180 ? "disabled" : ""}>+</button>
+              ${state.latexPdfPath ? `<button class="btn small" id="ltx-pdf-ext-2" type="button">用系统预览打开</button>` : ""}
+              ${hasPdfPreview ? `<button class="btn small" id="ltx-pdf-close" type="button">关闭</button>` : ""}
+            </div>
+          </div>
+          <div class="card-body">
+            ${
+              state.latexPdfError
+                ? `<div class="callout error"><div>PDF 渲染失败：${esc(state.latexPdfError)}</div></div>`
+                : state.latexPdfLoading && !state.latexPdfDataUrl
+                  ? `<p>正在渲染 PDF 第 ${state.latexPdfPage} 页…</p>`
+                  : state.latexPdfDataUrl
+                    ? `<div class="pdf-preview-stage">
+                        ${state.latexPdfLoading ? `<div class="pill blue" style="margin-bottom:8px">正在加载第 ${state.latexPdfPage} 页…</div>` : ""}
+                        <div class="pdf-page-wrap" style="width:${state.latexPdfZoom}%">
+                          <img id="ltx-pdf-img" class="pdf-page-img ${state.latexHasSyncTeX ? "clickable" : ""}" src="${state.latexPdfDataUrl}" alt="PDF Page ${state.latexPdfPage}" title="${state.latexHasSyncTeX ? "点击 PDF 任意位置反向定位到左侧 LaTeX 源码行 (Inverse SyncTeX)" : ""}">
+                          ${highlightHtml}
+                        </div>
+                      </div>`
+                    : `<div class="callout"><div>点击「编译预览」即可在右侧实时对照 PDF 并启用双向 SyncTeX 定位。</div></div>`
+            }
+          </div>
+        </div>`
+      : "";
+
   return `
     <div class="page-head">
       <div>
         <div class="eyebrow">LATEX CO-EDITING & XELATEX PREVIEW</div>
         <h1>LaTeX 防冲突协同编辑 · CJK 自动 XeLaTeX 编译</h1>
-        <p>遵循 Desktop 同源安全协议：open → read (取 mtimeMs) → save (首改备份 .edit_backup/) → -pdfxe/-pdf 编译与 SyncTeX。</p>
+        <p>遵循 Desktop 同源安全协议：open → read (取 mtimeMs) → save (首改备份 .edit_backup/) → -pdfxe/-pdf 编译与双向 SyncTeX。</p>
       </div>
     </div>
 
@@ -841,6 +982,8 @@ function renderLatex(): string {
               <span class="pill">主文件: ${esc(open.mainFile)}</span>
               <span class="pill ${open.runActive ? "red" : "green"}">${open.runActive ? "论文运行中 · 只读锁定" : "可安全保存"}</span>
               <span class="pill">已备份原稿: ${(open.backedUp || []).length}</span>
+              <span class="pill ${state.latexHasSyncTeX ? "green" : ""}">${state.latexHasSyncTeX ? "SyncTeX 已就绪" : "待编译 SyncTeX"}</span>
+              <button class="btn small" id="ltx-toggle-split" type="button">${state.latexSplitView ? "切换上下布局" : "切换左右分栏"}</button>
             </div>
             <div class="preset-grid" style="margin-top:10px">
               ${(open.files || []).map((f: string) => `<button class="chip ${f === state.latexFile ? "active" : ""}" data-ltx-file="${esc(f)}" type="button">${esc(f)}</button>`).join("")}
@@ -850,20 +993,10 @@ function renderLatex(): string {
     </div>
 
     ${
-      state.latexFile
-        ? `<div class="card">
-            <div class="card-head">
-              <div><h3 class="mono">${esc(state.latexFile)}</h3><p class="mono">mtimeMs: ${esc(state.latexMtimeMs)} · ${state.latexHasBackup ? "存在 .edit_backup 原稿" : "尚未修改"}</p></div>
-              <div class="btn-row">
-                <button class="btn small" id="ltx-reload" type="button">重新读取</button>
-                <button class="btn small" id="ltx-open-side" type="button">在侧栏打开源码</button>
-                <button class="btn small primary" id="ltx-save" type="button">防冲突保存 (save)</button>
-                <button class="btn small danger" id="ltx-restore" type="button" ${state.latexHasBackup ? "" : "disabled"}>恢复原稿 (restore)</button>
-              </div>
-            </div>
-            <div class="card-body">
-              <textarea id="ltx-editor" class="code-editor">${esc(state.latexContent)}</textarea>
-            </div>
+      showSplit
+        ? `<div class="latex-split ${state.latexSplitView ? "" : "stacked"}">
+            ${editorCardHtml}
+            ${pdfCardHtml}
           </div>`
         : ""
     }
@@ -891,43 +1024,6 @@ function renderLatex(): string {
                   : ""
               }
               <pre class="po-pre">${esc(comp.logTail || "")}</pre>
-            </div>
-          </div>`
-        : ""
-    }
-    ${
-      state.latexPdfLoading || state.latexPdfDataUrl || state.latexPdfError
-        ? `<div class="card">
-            <div class="card-head">
-              <div>
-                <h3>内置分页 PDF 预览</h3>
-                <p class="mono">${esc(state.latexPdfPath.split("/").pop() || "preview.pdf")} · 第 ${state.latexPdfPage} / ${state.latexPdfPageCount || "?"} 页</p>
-              </div>
-              <div class="btn-row">
-                <button class="btn small" id="ltx-pdf-first" type="button" ${state.latexPdfPage <= 1 || state.latexPdfLoading ? "disabled" : ""}>首页</button>
-                <button class="btn small" id="ltx-pdf-prev" type="button" ${state.latexPdfPage <= 1 || state.latexPdfLoading ? "disabled" : ""}>上一页</button>
-                <input class="pdf-jump-input" id="ltx-pdf-jump" type="number" min="1" max="${Math.max(1, state.latexPdfPageCount || 1)}" value="${state.latexPdfPage}">
-                <button class="btn small" id="ltx-pdf-jump-go" type="button" ${state.latexPdfLoading ? "disabled" : ""}>跳转</button>
-                <button class="btn small" id="ltx-pdf-next" type="button" ${state.latexPdfPageCount > 0 && state.latexPdfPage >= state.latexPdfPageCount || state.latexPdfLoading ? "disabled" : ""}>下一页</button>
-                <button class="btn small" id="ltx-pdf-last" type="button" ${state.latexPdfPageCount <= 0 || state.latexPdfPage >= state.latexPdfPageCount || state.latexPdfLoading ? "disabled" : ""}>末页</button>
-                <button class="btn small" id="ltx-pdf-zoom-out" type="button" ${state.latexPdfZoom <= 80 ? "disabled" : ""}>-</button>
-                <span class="pill">${state.latexPdfZoom}%</span>
-                <button class="btn small" id="ltx-pdf-zoom-in" type="button" ${state.latexPdfZoom >= 180 ? "disabled" : ""}>+</button>
-                <button class="btn small" id="ltx-pdf-ext-2" type="button">用系统预览打开</button>
-                <button class="btn small" id="ltx-pdf-close" type="button">关闭</button>
-              </div>
-            </div>
-            <div class="card-body">
-              ${
-                state.latexPdfError
-                  ? `<div class="callout error"><div>PDF 渲染失败：${esc(state.latexPdfError)}</div></div>`
-                  : state.latexPdfLoading && !state.latexPdfDataUrl
-                    ? `<p>正在渲染 PDF 第 ${state.latexPdfPage} 页…</p>`
-                    : `<div class="pdf-preview-stage">
-                        ${state.latexPdfLoading ? `<div class="pill blue" style="margin-bottom:8px">正在加载第 ${state.latexPdfPage} 页…</div>` : ""}
-                        <img class="pdf-page-img" src="${state.latexPdfDataUrl}" style="width:${state.latexPdfZoom}%" alt="PDF Page ${state.latexPdfPage}">
-                      </div>`
-              }
             </div>
           </div>`
         : ""
@@ -1165,6 +1261,19 @@ function renderModal(): string {
 function render(): void {
   const root = document.getElementById("root")!;
   const bridgeOnline = Boolean(state.snapshot.bridge?.online);
+  const existingEd = document.getElementById("ltx-editor") as HTMLTextAreaElement | null;
+  const prevEd = existingEd
+    ? {
+        selStart: existingEd.selectionStart ?? 0,
+        selEnd: existingEd.selectionEnd ?? 0,
+        scrollTop: existingEd.scrollTop,
+        focused: document.activeElement === existingEd,
+      }
+    : null;
+  const existingStage = document.querySelector(".pdf-preview-stage") as HTMLElement | null;
+  const prevStage = existingStage
+    ? { scrollTop: existingStage.scrollTop, scrollLeft: existingStage.scrollLeft }
+    : null;
 
   const tabContentMap: Record<TabId, () => string> = {
     overview: renderOverview,
@@ -1234,6 +1343,45 @@ function render(): void {
   `;
 
   bindEvents();
+
+  const nextEd = document.getElementById("ltx-editor") as HTMLTextAreaElement | null;
+  if (nextEd) {
+    if (pendingEditorJumpLine !== null) {
+      const targetLine = pendingEditorJumpLine;
+      pendingEditorJumpLine = null;
+      const { start, end } = lineRangeOffsets(nextEd.value, targetLine);
+      nextEd.focus({ preventScroll: true });
+      nextEd.setSelectionRange(start, end);
+      const lineHeight = parseFloat(getComputedStyle(nextEd).lineHeight) || 19;
+      nextEd.scrollTop = Math.max(0, (targetLine - 1) * lineHeight - nextEd.clientHeight * 0.35);
+      state.latexCursorStartLine = targetLine;
+      state.latexCursorEndLine = targetLine;
+      state.latexCursorCol = 1;
+      const badge = document.getElementById("ltx-cursor-badge");
+      if (badge) badge.textContent = `L${targetLine}`;
+    } else if (prevEd) {
+      nextEd.scrollTop = prevEd.scrollTop;
+      if (prevEd.focused) {
+        nextEd.focus({ preventScroll: true });
+        nextEd.setSelectionRange(prevEd.selStart, prevEd.selEnd);
+      }
+    }
+  }
+
+  const nextStage = document.querySelector(".pdf-preview-stage") as HTMLElement | null;
+  if (nextStage) {
+    const hlEl = document.getElementById("ltx-sync-highlight");
+    if (pendingScrollToHighlight && hlEl) {
+      pendingScrollToHighlight = false;
+      const stageRect = nextStage.getBoundingClientRect();
+      const hlRect = hlEl.getBoundingClientRect();
+      const targetTop = nextStage.scrollTop + (hlRect.top - stageRect.top) - nextStage.clientHeight * 0.38;
+      nextStage.scrollTo({ top: Math.max(0, targetTop), behavior: "smooth" });
+    } else if (prevStage) {
+      nextStage.scrollTop = prevStage.scrollTop;
+      nextStage.scrollLeft = prevStage.scrollLeft;
+    }
+  }
 }
 
 function askConfirm(opts: Omit<ConfirmState, "typed" | "values">): void {
@@ -1802,12 +1950,64 @@ function bindEvents(): void {
     state.selectedRunDir = (ev.target as HTMLInputElement).value;
   });
   document.getElementById("ltx-open-btn")?.addEventListener("click", () => void openLatexDir());
+  document.getElementById("ltx-toggle-split")?.addEventListener("click", () => {
+    state.latexSplitView = !state.latexSplitView;
+    render();
+  });
   document.querySelectorAll<HTMLElement>("[data-ltx-file]").forEach((btn) => {
     btn.addEventListener("click", () => void readLatexFile(btn.dataset.ltxFile!));
   });
   document.getElementById("ltx-reload")?.addEventListener("click", () => void readLatexFile(state.latexFile));
-  document.getElementById("ltx-editor")?.addEventListener("input", (ev) => {
-    state.latexContent = (ev.target as HTMLTextAreaElement).value;
+  const edEl = document.getElementById("ltx-editor") as HTMLTextAreaElement | null;
+  edEl?.addEventListener("input", () => {
+    state.latexContent = edEl.value;
+  });
+  const handleEditorSelectionChange = (triggerSync: boolean) => {
+    if (!edEl) return;
+    const selStart = edEl.selectionStart ?? 0;
+    const selEnd = edEl.selectionEnd ?? selStart;
+    const startLC = offsetToLineCol(edEl.value, selStart);
+    const endOffset = selEnd > selStart ? selEnd - 1 : selStart;
+    const endLC = offsetToLineCol(edEl.value, endOffset);
+    state.latexCursorStartLine = startLC.line;
+    state.latexCursorEndLine = Math.max(startLC.line, endLC.line);
+    state.latexCursorCol = startLC.col;
+    const badge = document.getElementById("ltx-cursor-badge");
+    if (badge) {
+      badge.textContent =
+        state.latexCursorStartLine === state.latexCursorEndLine
+          ? `L${state.latexCursorStartLine}`
+          : `L${state.latexCursorStartLine}–${state.latexCursorEndLine}`;
+    }
+    if (triggerSync && state.latexAutoSync && state.latexHasSyncTeX && state.latexFile.endsWith(".tex")) {
+      if (syncDebounceTimer !== null) window.clearTimeout(syncDebounceTimer);
+      syncDebounceTimer = window.setTimeout(() => {
+        syncDebounceTimer = null;
+        void syncLatexToPdf({ silent: true });
+      }, 350);
+    }
+  };
+  edEl?.addEventListener("mouseup", () => handleEditorSelectionChange(true));
+  edEl?.addEventListener("keyup", (ev) => {
+    const navKeys = new Set([
+      "ArrowUp",
+      "ArrowDown",
+      "ArrowLeft",
+      "ArrowRight",
+      "PageUp",
+      "PageDown",
+      "Home",
+      "End",
+      "Enter",
+    ]);
+    const hasSel = (edEl.selectionEnd ?? 0) !== (edEl.selectionStart ?? 0);
+    handleEditorSelectionChange(navKeys.has(ev.key) || hasSel);
+  });
+  document.getElementById("ltx-auto-sync")?.addEventListener("change", (ev) => {
+    state.latexAutoSync = (ev.target as HTMLInputElement).checked;
+  });
+  document.getElementById("ltx-sync-to-pdf")?.addEventListener("click", () => {
+    void syncLatexToPdf({ silent: false });
   });
   document.getElementById("ltx-open-side")?.addEventListener("click", async () => {
     if (state.latexOpen?.sourceDir && state.latexFile) {
@@ -1860,9 +2060,10 @@ function bindEvents(): void {
         tex_file: state.latexFile || undefined,
       });
       state.latexCompileResult = res;
+      state.latexHasSyncTeX = Boolean(res.hasSyncTeX);
       render();
       if (res.ok && res.pdfPath) {
-        void loadLatexPdfPage(String(res.pdfPath), 1);
+        void loadLatexPdfPage(String(res.pdfPath), state.latexPdfPage || 1, { preserveHighlight: true });
       }
     } catch (e) {
       showToast(String(e), true);
@@ -1884,6 +2085,9 @@ function bindEvents(): void {
       void loadLatexPdfPage(pdfPath, state.latexPdfPage || 1);
       showToast("当前为全屏视图无侧边文件栏，已切换至内置分页 PDF 预览（也可点「用系统预览打开」）");
     }
+  });
+  document.getElementById("ltx-pdf-img")?.addEventListener("click", (ev) => {
+    void syncPdfClickToLatex(ev as MouseEvent);
   });
   document.getElementById("ltx-pdf-first")?.addEventListener("click", () => {
     if (state.latexPdfPath) void loadLatexPdfPage(state.latexPdfPath, 1);
@@ -1924,6 +2128,7 @@ function bindEvents(): void {
     state.latexPdfDataUrl = "";
     state.latexPdfLoading = false;
     state.latexPdfError = "";
+    state.latexSyncHighlight = null;
     render();
   });
   document.getElementById("ltx-trace-btn")?.addEventListener("click", async () => {
@@ -2164,9 +2369,14 @@ async function openLatexDir(): Promise<void> {
   try {
     const res = await bridge.callTool("po_latex_workbench", { action: "open", run_dir: state.selectedRunDir });
     state.latexOpen = res;
+    state.latexHasSyncTeX = Boolean(res.hasSyncTeX);
+    state.latexSyncHighlight = null;
     const first = String(res.mainFile || (res.files || [])[0] || "");
     if (first) await readLatexFile(first);
     else render();
+    if (res.previewPdfPath && state.latexPdfPath !== String(res.previewPdfPath)) {
+      void loadLatexPdfPage(String(res.previewPdfPath), 1);
+    }
   } catch (e) {
     showToast(String(e), true);
   }
@@ -2184,15 +2394,31 @@ async function readLatexFile(rel: string): Promise<void> {
     state.latexContent = String(res.content || "");
     state.latexMtimeMs = Number(res.mtimeMs || 0);
     state.latexHasBackup = Boolean(res.hasBackup);
+    state.latexHasSyncTeX = Boolean(res.hasSyncTeX || state.latexHasSyncTeX);
+    if (pendingEditorJumpLine === null) {
+      state.latexCursorStartLine = 1;
+      state.latexCursorEndLine = 1;
+      state.latexCursorCol = 1;
+    }
     render();
+    if (
+      res.previewPdfPath &&
+      rel.endsWith(".tex") &&
+      (!state.latexPdfPath || String(res.previewPdfPath) !== state.latexPdfPath || !state.latexPdfDataUrl)
+    ) {
+      void loadLatexPdfPage(String(res.previewPdfPath), 1);
+    }
   } catch (e) {
     showToast(String(e), true);
   }
 }
 
-async function loadLatexPdfPage(pdfPath: string, page = 1): Promise<void> {
+async function loadLatexPdfPage(pdfPath: string, page = 1, opts?: { preserveHighlight?: boolean }): Promise<void> {
   if (!pdfPath) return;
   const reqPage = Math.max(1, Math.floor(page));
+  if (!opts?.preserveHighlight || (state.latexSyncHighlight && state.latexSyncHighlight.page !== reqPage)) {
+    state.latexSyncHighlight = null;
+  }
   state.latexPdfPath = pdfPath;
   state.latexPdfPage = reqPage;
   state.latexPdfLoading = true;
@@ -2207,13 +2433,122 @@ async function loadLatexPdfPage(pdfPath: string, page = 1): Promise<void> {
     });
     state.latexPdfPage = Number(res.page || reqPage);
     state.latexPdfPageCount = Number(res.pageCount || 0);
+    state.latexPdfWidthPt = Number(res.pageWidthPt || 612);
+    state.latexPdfHeightPt = Number(res.pageHeightPt || 792);
     state.latexPdfDataUrl = String(res.dataUrl || "");
     state.latexPdfLoading = false;
+    if (state.latexSyncHighlight && state.latexSyncHighlight.page === state.latexPdfPage) {
+      pendingScrollToHighlight = true;
+    }
     render();
   } catch (e) {
     state.latexPdfLoading = false;
     state.latexPdfError = String(e);
     render();
+  }
+}
+
+async function syncLatexToPdf(opts?: { silent?: boolean }): Promise<void> {
+  if (!state.selectedRunDir || !state.latexFile) return;
+  if (!state.latexFile.endsWith(".tex")) {
+    if (!opts?.silent) showToast("SyncTeX 仅支持 .tex 文件定位", true);
+    return;
+  }
+  if (state.latexSyncBusy) return;
+
+  const ed = document.getElementById("ltx-editor") as HTMLTextAreaElement | null;
+  let startLine = state.latexCursorStartLine;
+  let endLine = state.latexCursorEndLine;
+  let col = state.latexCursorCol;
+  if (ed) {
+    const selStart = ed.selectionStart ?? 0;
+    const selEnd = ed.selectionEnd ?? selStart;
+    const s = offsetToLineCol(ed.value, selStart);
+    const e = offsetToLineCol(ed.value, selEnd > selStart ? selEnd - 1 : selStart);
+    startLine = s.line;
+    endLine = Math.max(s.line, e.line);
+    col = s.col;
+    state.latexCursorStartLine = startLine;
+    state.latexCursorEndLine = endLine;
+    state.latexCursorCol = col;
+  }
+
+  state.latexSyncBusy = true;
+  try {
+    const res = await bridge.callTool("po_latex_workbench", {
+      action: "sync_view",
+      run_dir: state.selectedRunDir,
+      tex_file: state.latexFile,
+      pdf_path: state.latexPdfPath || undefined,
+      line: startLine,
+      end_line: endLine,
+      column: col,
+    });
+    if (!res.ok || !res.page) {
+      if (!opts?.silent) showToast("未能定位到 PDF 对应位置（请先编译生成 .synctex.gz 或换一行重试）", true);
+      return;
+    }
+    state.latexHasSyncTeX = true;
+    const lineLabel = startLine === endLine ? `L${startLine}` : `L${startLine}–${endLine}`;
+    state.latexSyncHighlight = res.highlight ? { ...res.highlight, lineLabel } : null;
+    pendingScrollToHighlight = true;
+    const targetPdf = String(res.pdfPath || state.latexPdfPath || "");
+    const targetPage = Number(res.page);
+    if (targetPdf && (targetPdf !== state.latexPdfPath || targetPage !== state.latexPdfPage || !state.latexPdfDataUrl)) {
+      await loadLatexPdfPage(targetPdf, targetPage, { preserveHighlight: true });
+    } else {
+      render();
+    }
+  } catch (e) {
+    if (!opts?.silent) showToast(String(e), true);
+  } finally {
+    state.latexSyncBusy = false;
+  }
+}
+
+async function syncPdfClickToLatex(ev: MouseEvent): Promise<void> {
+  if (!state.selectedRunDir || !state.latexPdfPath || state.latexPdfWidthPt <= 0 || state.latexPdfHeightPt <= 0) return;
+  const img = ev.currentTarget as HTMLImageElement | null;
+  if (!img) return;
+  const rect = img.getBoundingClientRect();
+  if (rect.width <= 0 || rect.height <= 0) return;
+
+  const xPt = ((ev.clientX - rect.left) / rect.width) * state.latexPdfWidthPt;
+  const yPt = ((ev.clientY - rect.top) / rect.height) * state.latexPdfHeightPt;
+  try {
+    const res = await bridge.callTool("po_latex_workbench", {
+      action: "sync_edit",
+      run_dir: state.selectedRunDir,
+      tex_file: state.latexFile || undefined,
+      pdf_path: state.latexPdfPath,
+      page: state.latexPdfPage,
+      x: Number(xPt.toFixed(2)),
+      y: Number(yPt.toFixed(2)),
+    });
+    if (!res.ok || !res.line) {
+      showToast("当前位置未匹配到 LaTeX 源码行（可能为空白页边距或未编译 .synctex.gz）", true);
+      return;
+    }
+    const targetLine = Number(res.line);
+    const targetFile = String(res.relFile || state.latexFile || "");
+    pendingEditorJumpLine = targetLine;
+    state.latexSyncHighlight = {
+      page: state.latexPdfPage,
+      h: Math.max(0, xPt - 18),
+      v: yPt + 7,
+      top: Math.max(0, yPt - 7),
+      W: 36,
+      H: 14,
+      lineLabel: `L${targetLine}`,
+    };
+    if (res.relFile && String(res.relFile) !== state.latexFile) {
+      await readLatexFile(String(res.relFile));
+    } else {
+      render();
+    }
+    showToast(`已反向定位至 ${targetFile} 第 ${targetLine} 行`);
+  } catch (e) {
+    showToast(String(e), true);
   }
 }
 

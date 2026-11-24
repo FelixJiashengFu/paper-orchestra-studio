@@ -2664,6 +2664,52 @@ def _first_synctex_record(out: str) -> Dict[str, str]:
     return fields
 
 
+def _all_synctex_records(out: str) -> List[Dict[str, str]]:
+    records: List[Dict[str, str]] = []
+    current: Dict[str, str] = {}
+    in_result = False
+    for raw in out.splitlines():
+        line = raw.rstrip("\r")
+        if line == "SyncTeX result begin":
+            in_result = True
+            current = {}
+            continue
+        if not in_result:
+            continue
+        if line == "SyncTeX result end":
+            if current:
+                records.append(current)
+                current = {}
+            break
+        if line.startswith("Output:"):
+            if current:
+                records.append(current)
+            current = {"Output": line.split(":", 1)[1]}
+            continue
+        if ":" in line:
+            k, v = line.split(":", 1)
+            current.setdefault(k, v)
+    if current:
+        records.append(current)
+    return records
+
+
+def _has_synctex_file(pdf_path: Path) -> bool:
+    return pdf_path.is_file() and (
+        pdf_path.with_suffix(".synctex.gz").is_file()
+        or pdf_path.with_suffix(".synctex").is_file()
+    )
+
+
+def _resolve_synctex_pdf(run_dir: Path, preview_pdf: Path, fallback_pdf: Path, explicit_pdf: str) -> Path:
+    raw = str(explicit_pdf or "").strip()
+    if raw:
+        cand = Path(os.path.expanduser(raw)).resolve()
+        if cand.is_file() and cand.suffix.lower() == ".pdf" and (cand == run_dir or run_dir in cand.parents):
+            return cand
+    return preview_pdf if preview_pdf.is_file() else fallback_pdf
+
+
 _CJK_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]")
 _MAX_EDIT_BYTES = 16 * 1024 * 1024
 
@@ -2811,6 +2857,7 @@ def tool_latex_workbench(ctx: RuntimeContext, args: Dict[str, Any]) -> Dict[str,
     if action == "open":
         editable = _list_editable_files(src_dir, main_tex)
         backed_up = [f for f in editable if (backup_root / f).is_file()]
+        existing_pdf = preview_pdf if preview_pdf.is_file() else (fallback_pdf if fallback_pdf.is_file() else None)
         return {
             "ok": True,
             "runDir": str(run_dir),
@@ -2820,6 +2867,8 @@ def tool_latex_workbench(ctx: RuntimeContext, args: Dict[str, Any]) -> Dict[str,
             "files": editable,
             "backedUp": backed_up,
             "runActive": _run_is_active(ctx, run_dir),
+            "previewPdfPath": str(existing_pdf) if existing_pdf else "",
+            "hasSyncTeX": bool(existing_pdf and _has_synctex_file(existing_pdf)),
         }
 
     if action == "read":
@@ -2832,12 +2881,19 @@ def tool_latex_workbench(ctx: RuntimeContext, args: Dict[str, Any]) -> Dict[str,
             content = raw.decode("utf-8")
         except UnicodeDecodeError as exc:
             raise RuntimeError(f"File is not valid UTF-8: {exc}") from exc
+        if target.suffix.lower() == ".tex":
+            pdf_candidates = [preview_dir / f"{target.stem}.pdf", target.with_suffix(".pdf"), preview_pdf, fallback_pdf]
+        else:
+            pdf_candidates = [preview_pdf, fallback_pdf]
+        found_pdf = next((cand for cand in pdf_candidates if cand.is_file()), None)
         return {
             "ok": True,
             "file": rel_file,
             "content": content,
             "mtimeMs": mtime_ms,
             "hasBackup": (backup_root / rel_file).is_file(),
+            "previewPdfPath": str(found_pdf) if found_pdf else "",
+            "hasSyncTeX": bool(found_pdf and _has_synctex_file(found_pdf)),
         }
 
     if action == "save":
@@ -2957,29 +3013,103 @@ def tool_latex_workbench(ctx: RuntimeContext, args: Dict[str, Any]) -> Dict[str,
         synctex = _which_tool("synctex")
         if not synctex:
             raise RuntimeError("`synctex` binary not found in PATH.")
-        target_pdf = preview_pdf if preview_pdf.is_file() else fallback_pdf
+        target_pdf = _resolve_synctex_pdf(run_dir, preview_pdf, fallback_pdf, str(args.get("pdf_path") or ""))
         if not target_pdf.is_file():
             raise RuntimeError("Preview PDF not found; compile first with action='compile'.")
+        target_tex = (
+            _resolve_editable_file(src_dir, str(args.get("tex_file") or ""), main_tex)[1]
+            if args.get("tex_file")
+            else main_tex
+        )
         line = max(1, int(args.get("line") or 1))
         col = max(1, int(args.get("column") or 1))
-        proc = subprocess.run(
-            [synctex, "view", "-i", f"{line}:{col}:{main_tex}", "-o", str(target_pdf)],
-            cwd=str(target_pdf.parent),
-            env=ctx.subprocess_env(),
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=30,
-        )
-        fields = _first_synctex_record(proc.stdout)
-        return {"ok": "Page" in fields, "mainTex": main_tex.name, "pdfPath": str(target_pdf), "synctex": fields}
+        raw_end = int(args.get("end_line") or 0)
+        end_line = max(line, raw_end) if raw_end > 0 else line
+        if end_line <= line:
+            query_lines = [line]
+        elif end_line - line <= 4:
+            query_lines = list(range(line, end_line + 1))
+        else:
+            query_lines = sorted(
+                {line, line + (end_line - line) // 3, line + (2 * (end_line - line)) // 3, end_line}
+            )
+
+        first_fields: Dict[str, str] = {}
+        target_page: Optional[int] = None
+        boxes: List[Dict[str, Any]] = []
+        for qline in query_lines:
+            qcol = col if qline == line else 1
+            proc = subprocess.run(
+                [synctex, "view", "-i", f"{qline}:{qcol}:{target_tex}", "-o", str(target_pdf)],
+                cwd=str(target_pdf.parent),
+                env=ctx.subprocess_env(),
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=30,
+            )
+            recs = _all_synctex_records(proc.stdout)
+            if not first_fields:
+                for rec in recs:
+                    if "Page" in rec and str(rec["Page"]).strip().isdigit():
+                        first_fields = rec
+                        target_page = int(str(rec["Page"]).strip())
+                        break
+            if target_page is None:
+                continue
+            for rec in recs:
+                pg_raw = str(rec.get("Page", "")).strip()
+                if not pg_raw.isdigit() or int(pg_raw) != target_page:
+                    continue
+                try:
+                    h = float(rec.get("h") or rec.get("x") or 0.0)
+                    v = float(rec.get("v") or rec.get("y") or 0.0)
+                    w = max(float(rec.get("W") or 0.0), 18.0)
+                    h_box = max(float(rec.get("H") or 0.0), 10.0)
+                except (TypeError, ValueError):
+                    continue
+                top = max(0.0, v - h_box)
+                boxes.append({
+                    "page": target_page,
+                    "h": round(h, 2),
+                    "v": round(v, 2),
+                    "top": round(top, 2),
+                    "W": round(w, 2),
+                    "H": round(h_box, 2),
+                })
+
+        highlight: Optional[Dict[str, Any]] = None
+        if boxes and target_page is not None:
+            min_x = min(b["h"] for b in boxes)
+            max_x = max(b["h"] + b["W"] for b in boxes)
+            min_y = min(b["top"] for b in boxes)
+            max_y = max(b["v"] for b in boxes)
+            highlight = {
+                "page": target_page,
+                "h": round(min_x, 2),
+                "v": round(max_y, 2),
+                "top": round(min_y, 2),
+                "W": round(max(18.0, max_x - min_x), 2),
+                "H": round(max(10.0, max_y - min_y), 2),
+            }
+        return {
+            "ok": bool(first_fields and target_page is not None),
+            "mainTex": target_tex.name,
+            "pdfPath": str(target_pdf),
+            "page": target_page,
+            "startLine": line,
+            "endLine": end_line,
+            "highlight": highlight,
+            "boxes": boxes[:24],
+            "synctex": first_fields,
+        }
 
     if action == "sync_edit":
         synctex = _which_tool("synctex")
         if not synctex:
             raise RuntimeError("`synctex` binary not found in PATH.")
-        target_pdf = preview_pdf if preview_pdf.is_file() else fallback_pdf
+        target_pdf = _resolve_synctex_pdf(run_dir, preview_pdf, fallback_pdf, str(args.get("pdf_path") or ""))
         if not target_pdf.is_file():
             raise RuntimeError("Preview PDF not found; compile first with action='compile'.")
         page = max(1, int(args.get("page") or 1))
@@ -2996,7 +3126,27 @@ def tool_latex_workbench(ctx: RuntimeContext, args: Dict[str, Any]) -> Dict[str,
             timeout=30,
         )
         fields = _first_synctex_record(proc.stdout)
-        return {"ok": "Input" in fields, "synctex": fields}
+        raw_input = str(fields.get("Input") or "").strip()
+        rel_file = ""
+        if raw_input:
+            try:
+                resolved_in = Path(raw_input).resolve()
+                if resolved_in.is_file() and (resolved_in == src_dir or src_dir in resolved_in.parents):
+                    rel_file = resolved_in.relative_to(src_dir).as_posix()
+                elif (src_dir / Path(raw_input).name).is_file():
+                    rel_file = Path(raw_input).name
+            except OSError:
+                if (src_dir / Path(raw_input).name).is_file():
+                    rel_file = Path(raw_input).name
+        raw_line = str(fields.get("Line") or "").strip()
+        line_num = int(raw_line) if raw_line.lstrip("-").isdigit() else None
+        return {
+            "ok": "Input" in fields,
+            "pdfPath": str(target_pdf),
+            "relFile": rel_file,
+            "line": line_num,
+            "synctex": fields,
+        }
 
     if action == "export_overleaf":
         dest = str(args.get("out_zip") or "").strip()
@@ -4134,6 +4284,7 @@ try:
         raise RuntimeError("PDF has zero pages")
     page_num = max(1, min(total, req_page))
     page = doc.load_page(page_num - 1)
+    rect = page.rect
     best_bytes = b""
     best_w, best_h = 0, 0
     for try_dpi in (req_dpi, min(req_dpi, 110), 85):
@@ -4152,6 +4303,8 @@ try:
         "pageCount": total,
         "width": best_w,
         "height": best_h,
+        "pageWidthPt": float(rect.width),
+        "pageHeightPt": float(rect.height),
         "bytes": len(best_bytes),
         "dataUrl": "data:image/jpeg;base64," + base64.b64encode(best_bytes).decode("ascii"),
     }))
@@ -4171,6 +4324,7 @@ def _render_pdf_page_jpeg(ctx: RuntimeContext, pdf_path: Path, page: int, dpi: i
                 raise RuntimeError("PDF has zero pages.")
             page_num = max(1, min(total, page))
             pg = doc.load_page(page_num - 1)
+            rect = pg.rect
             best_bytes = b""
             best_w, best_h = 0, 0
             for try_dpi in (dpi, min(dpi, 110), 85):
@@ -4190,6 +4344,8 @@ def _render_pdf_page_jpeg(ctx: RuntimeContext, pdf_path: Path, page: int, dpi: i
                 "pageCount": total,
                 "width": best_w,
                 "height": best_h,
+                "pageWidthPt": float(rect.width),
+                "pageHeightPt": float(rect.height),
                 "bytes": len(best_bytes),
                 "dataUrl": "data:image/jpeg;base64," + base64.b64encode(best_bytes).decode("ascii"),
             }
@@ -4533,10 +4689,12 @@ TOOLS: List[Tuple[str, str, Dict[str, Any], Any, Optional[Dict[str, Any]]]] = [
             "content": {"type": "string", "description": "Updated UTF-8 .tex/.bib text for action='save'"},
             "expected_mtime_ms": {"type": "integer", "description": "Conflict guard mtimeMs returned by action='read'"},
             "line": {"type": "integer"},
+            "end_line": {"type": "integer", "description": "Optional selection end line for multi-line sync_view highlight"},
             "column": {"type": "integer"},
             "page": {"type": "integer"},
             "x": {"type": "number"},
             "y": {"type": "number"},
+            "pdf_path": {"type": "string", "description": "Optional compiled PDF path inside run_dir for sync_view/sync_edit"},
             "out_zip": {"type": "string"},
             "allow_overwrite": {"type": "boolean"},
             "timeout": {"type": "integer"},

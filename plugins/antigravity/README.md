@@ -2,7 +2,7 @@
 
 Native Antigravity plugin (v1.1.0) bundling PaperOrchestra Studio's full local AI scientific workstation over one shared zero-dependency MCP server (`paper_orchestra_mcp.py`, **22 model tools + 1 app-only snapshot / 6 resources / 5 prompts**) with **2 native interactive Antigravity MCP Apps** (`workbench.html` + `tool-tree.html` for `aux_pane` & `global` sidebar views), **6 workflow skills**, and **always-on provenance & security rules**.
 
-- **Built-in Paginated PDF Preview & OS Fallback**: `LaTeX 协同` supports inline paginated PDF rendering (`render_pdf_page` via PyMuPDF, with page jump & zoom) plus OS default viewer fallback (`open_file_external`), working seamlessly in both `global` full-page and `aux_pane` views.
+- **Side-by-Side LaTeX/PDF Split View & Bidirectional SyncTeX**: `LaTeX 协同` features an Overleaf-style side-by-side split view (toggleable to stacked), built-in paginated PDF rendering (`render_pdf_page` via PyMuPDF with exact point dimensions), forward `tex -> PDF` multi-line highlight (`sync_view`, including optional auto-follow on cursor/selection), inverse `PDF -> tex` click-to-jump (`sync_edit`), plus OS default viewer fallback (`open_file_external`).
 
 ## Directory Layout
 

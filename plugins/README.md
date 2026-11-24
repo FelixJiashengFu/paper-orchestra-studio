@@ -28,15 +28,15 @@ Antigravity and Claude Desktop use distinct native plugin manifest formats, so t
 12. `po_figure_studio` — 3-route plotting (`data_code`, `schematic_svg`, `concept_image`), version bundles, normalized `bbox` (`'x,y,w,h'` or `{x,y,w,h}`) local revision, restore
 13. `po_literature_library` — 8-source search, DOI/PDF import into SQLite, paginated `list` (`folder`/`offset`/`limit`), citation knowledge graph, BibTeX & GB/T 7714 export
 14. `po_latex_copilot` — AI LaTeX editing copilot & inline claim-to-citation traceability
-15. `po_latex_workbench` — Conflict-safe `open`/`read`/`save` (`expected_mtime_ms` + `.edit_backup/`), `restore`, auto-CJK XeLaTeX (`-pdfxe`) / pdfLaTeX `compile` with structured issues, SyncTeX lookup, clean `export_overleaf` ZIP
+15. `po_latex_workbench` — Conflict-safe `open`/`read`/`save` (`expected_mtime_ms` + `.edit_backup/`), `restore`, auto-CJK XeLaTeX (`-pdfxe`) / pdfLaTeX `compile` with structured issues, bidirectional SyncTeX (`sync_view` multi-line highlight box & `sync_edit` click-to-jump), clean `export_overleaf` ZIP
 16. `po_submission_audit` — All 8 checks: `manuscript-audit` (Nature), `cite-online`, `arxiv`, `blind`, `diagnose`, `versions`, `diff` (`latexdiff`), `lean-audit`
 17. `po_export_document` — Claude Artifacts-style offline interactive HTML (TOC, Paper/Light/Dark themes, provenance pills, MathML, SVG Mermaid), Word `.docx`, PDF, Google Drive
 18. `po_compute_and_memory` — Persistent Research Memories & Preferences + SSH/GPU hosts (`nvidia-smi` probe, remote `exec`, `scp`)
 19. `po_studio_bridge` — Loopback TCP v1 bridge to running Studio Desktop app (`status`, auto-launch & `open_studio`, bridge jobs) & `integrations/` launcher
 20. `po_settings_and_setup` — SQLite `app_settings` get/update, `providers.json` static validator (`providers.rs` parity), boolean 20-platform readiness, `scripts/setup-backend.*` discovery
-21. `po_open_workbench` — Interactive 9-tab MCP App UI (Overview + Canvas Collaboration Console, Projects, Runs, Paginated Library, Interactive Drag-Box Figure Bench, LaTeX Co-Editor with built-in paginated PDF preview & `refined_paper_v*.tex` selection, Audits & Exports, Skills/Env, Safe Tools Console)
+21. `po_open_workbench` — Interactive 9-tab MCP App UI (Overview + Canvas Collaboration Console, Projects, Runs, Paginated Library, Interactive Drag-Box Figure Bench, Overleaf-style side-by-side LaTeX Co-Editor with paginated PDF preview & bidirectional SyncTeX highlight/jump, Audits & Exports, Skills/Env, Safe Tools Console)
 22. `po_open_tool_tree` — Interactive 10-group PaperOrchestra Tool Tree MCP App UI (`aux_pane`)
-(+ internal app-only `po_ui_snapshot` powering live UI refreshes, local figure previews, PyMuPDF `render_pdf_page`, and OS viewer fallback `open_file_external`)
+(+ internal app-only `po_ui_snapshot` powering live UI refreshes, local figure previews, PyMuPDF `render_pdf_page` with page point geometry, and OS viewer fallback `open_file_external`)
 
 ## Rebuild Archives
 
